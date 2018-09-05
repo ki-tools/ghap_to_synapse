@@ -14,13 +14,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import sys, os, argparse, getpass, sh, tempfile, csv
+import sys
+import os
+import argparse
+import getpass
+import sh
+import tempfile
+import csv
 import synapseclient
 from synapseclient import Project, Folder, File
 from io import StringIO
 
-class GhapMigrator:
 
+class GhapMigrator:
 
     def __init__(self, csv_file_name, username=None, password=None):
         self._csv_file_name = csv_file_name
@@ -29,8 +35,6 @@ class GhapMigrator:
         self._work_dir = os.path.join(os.path.expanduser('~'), 'tmp', 'ghap')
         self._synapse_folders = {}
         self._git_to_syn_mappings = []
-
-
 
     def start(self):
         if(not os.path.exists(self._work_dir)):
@@ -47,23 +51,19 @@ class GhapMigrator:
 
         print('Completed Successfully.')
 
-
-
     def synapse_login(self):
         print('Logging into Synapse...')
-        syn_user = os.getenv('SYNAPSE_USER') or self._username
-        syn_pass = os.getenv('SYNAPSE_PASSWORD') or self._password
+        syn_user = self._username or os.getenv('SYNAPSE_USER')
+        syn_pass = self._password or os.getenv('SYNAPSE_PASSWORD')
 
         if syn_user == None:
             syn_user = input('Synapse username: ')
 
         if syn_pass == None:
             syn_pass = getpass.getpass(prompt='Synapse password: ')
-        
+
         self._synapse_client = synapseclient.Synapse()
         self._synapse_client.login(syn_user, syn_pass, silent=True)
-
-
 
     def process_csv(self):
         with open(self._csv_file_name) as csvfile:
@@ -71,8 +71,6 @@ class GhapMigrator:
             for row in reader:
                 git_url = row[0]
                 self.migrate(git_url)
-
-
 
     def migrate(self, git_url):
         print('Processing {0}'.format(git_url))
@@ -90,18 +88,17 @@ class GhapMigrator:
             sh.git.bake(_cwd=self._work_dir).clone(git_url)
 
         self.push_to_synapse(git_url, repo_name, repo_path)
-            
-
 
     def push_to_synapse(self, git_url, repo_name, repo_path):
         project_name = 'GHAP - {0}'.format(repo_name)
 
         project = self.find_or_create_project(project_name)
-        self._git_to_syn_mappings.append('{0} -> {1}'.format(git_url, project.id))
+        self._git_to_syn_mappings.append(
+            '{0} -> {1}'.format(git_url, project.id))
 
         # Create the folders and upload the files.
         for dirpath, dirnames, filenames in os.walk(repo_path):
-            
+
             if dirpath != repo_path:
                 folder_name = dirpath.replace(repo_path + os.sep, '')
 
@@ -116,7 +113,8 @@ class GhapMigrator:
                 folder_name = os.path.basename(full_synapse_path)
 
                 print('  -> {0}'.format(full_synapse_path))
-                synapse_folder = self._synapse_client.store(Folder(folder_name, parent=synapse_parent), forceVersion=False)
+                synapse_folder = self._synapse_client.store(
+                    Folder(folder_name, parent=synapse_parent), forceVersion=False)
                 self.set_synapse_folder(full_synapse_path, synapse_folder)
 
             for filename in filenames:
@@ -128,25 +126,23 @@ class GhapMigrator:
 
                 if (os.path.getsize(full_file_name) < 1):
                     continue
-                
+
                 print('File: {0}'.format(full_file_name))
-                full_synapse_path = os.path.join(project.id, full_file_name.replace(repo_path + os.sep, ''))
+                full_synapse_path = os.path.join(
+                    project.id, full_file_name.replace(repo_path + os.sep, ''))
                 synapse_parent_path = os.path.dirname(full_synapse_path)
                 synapse_parent = self.get_synapse_folder(synapse_parent_path)
-                
+
                 print('  -> {0}'.format(full_synapse_path))
-                synapse_file = self._synapse_client.store(File(full_file_name, parent=synapse_parent), forceVersion=False)
+                synapse_file = self._synapse_client.store(
+                    File(full_file_name, parent=synapse_parent), forceVersion=False)
                 synapse_file_md5 = synapse_file._file_handle['contentMd5']
-                
+
                 out_buffer = StringIO()
                 sh.md5sum(full_file_name, _out=out_buffer)
                 local_file_md5 = out_buffer.getvalue().split()[0]
                 if (local_file_md5 != synapse_file_md5):
                     raise Exception('Checksums do not match!')
-
-
-
-
 
     def find_or_create_project(self, project_name):
         profile = self._synapse_client.getUserProfile()
@@ -163,7 +159,8 @@ class GhapMigrator:
         project = None
 
         if (len(results)):
-            project = self._synapse_client.get(Project(id = results[-1]['project.id']))
+            project = self._synapse_client.get(
+                Project(id=results[-1]['project.id']))
             print('Found Project: {0}: {1}'.format(project.id, project.name))
         else:
             project = self._synapse_client.store(Project(project_name))
@@ -173,32 +170,27 @@ class GhapMigrator:
 
         return project
 
-
-
     def get_synapse_folder(self, synapse_path):
         return self._synapse_folders[synapse_path]
-
-
 
     def set_synapse_folder(self, synapse_path, parent):
         self._synapse_folders[synapse_path] = parent
 
 
-
 def main(argv):
     parser = argparse.ArgumentParser()
-    parser.add_argument('csv', help='CSV file with GIT repository URLs to process.')
-    parser.add_argument('-u', '--username', help='Synapse username.', default=None)
-    parser.add_argument('-p', '--password', help='Synapse password.', default=None)
+    parser.add_argument(
+        'csv', help='CSV file with GIT repository URLs to process.')
+    parser.add_argument('-u', '--username',
+                        help='Synapse username.', default=None)
+    parser.add_argument('-p', '--password',
+                        help='Synapse password.', default=None)
 
     args = parser.parse_args()
-    
-    GhapMigrator(
-        args.csv
-        ,username=args.username
-        ,password=args.password
-        ).start()
 
+    GhapMigrator(
+        args.csv, username=args.username, password=args.password
+    ).start()
 
 
 if __name__ == "__main__":
