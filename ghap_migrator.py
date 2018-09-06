@@ -124,25 +124,39 @@ class GhapMigrator:
 
                 full_file_name = os.path.join(dirpath, filename)
 
+                # Delete any existing git log files and skip the file
+                if full_file_name.endswith('.gitlog'):
+                    os.remove(full_file_name)
+                    continue
+
                 if (os.path.getsize(full_file_name) < 1):
                     continue
 
-                print('File: {0}'.format(full_file_name))
-                full_synapse_path = os.path.join(
-                    project.id, full_file_name.replace(repo_path + os.sep, ''))
-                synapse_parent_path = os.path.dirname(full_synapse_path)
-                synapse_parent = self.get_synapse_folder(synapse_parent_path)
+                # Get the GIT log
+                git_log_file_name = os.path.join(
+                    dirpath, '{0}.gitlog'.format(filename))
+                sh.git.bake('--no-pager', _cwd=dirpath).log(filename,
+                                                            _out=git_log_file_name, _tty_out=False)
 
-                print('  -> {0}'.format(full_synapse_path))
-                synapse_file = self._synapse_client.store(
-                    File(full_file_name, parent=synapse_parent), forceVersion=False)
-                synapse_file_md5 = synapse_file._file_handle['contentMd5']
+                for upload_file_name in [full_file_name, git_log_file_name]:
 
-                out_buffer = StringIO()
-                sh.md5sum(full_file_name, _out=out_buffer)
-                local_file_md5 = out_buffer.getvalue().split()[0]
-                if (local_file_md5 != synapse_file_md5):
-                    raise Exception('Checksums do not match!')
+                    print('File: {0}'.format(upload_file_name))
+                    full_synapse_path = os.path.join(
+                        project.id, upload_file_name.replace(repo_path + os.sep, ''))
+                    synapse_parent_path = os.path.dirname(full_synapse_path)
+                    synapse_parent = self.get_synapse_folder(
+                        synapse_parent_path)
+
+                    print('  -> {0}'.format(full_synapse_path))
+                    synapse_file = self._synapse_client.store(
+                        File(upload_file_name, parent=synapse_parent), forceVersion=False)
+                    synapse_file_md5 = synapse_file._file_handle['contentMd5']
+
+                    out_buffer = StringIO()
+                    sh.md5sum(upload_file_name, _out=out_buffer)
+                    local_file_md5 = out_buffer.getvalue().split()[0]
+                    if (local_file_md5 != synapse_file_md5):
+                        raise Exception('Checksums do not match!')
 
     def find_or_create_project(self, project_name):
         profile = self._synapse_client.getUserProfile()
