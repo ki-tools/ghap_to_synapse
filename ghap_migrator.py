@@ -28,11 +28,15 @@ from io import StringIO
 
 class GhapMigrator:
 
-    def __init__(self, csv_file_name, username=None, password=None, skip_md5=False):
-        self._skip_md5 = skip_md5
+    def __init__(self, csv_file_name, username=None, password=None, admin_team_id=None, storage_location_id=None, skip_md5=False):
         self._csv_file_name = csv_file_name
         self._username = username
         self._password = password
+        self._admin_team_id = admin_team_id
+        self._admin_team = None
+        self._storage_location_id = storage_location_id
+        self._storage_location = None
+        self._skip_md5 = skip_md5
         self._work_dir = os.path.join(os.path.expanduser('~'), 'tmp', 'ghap')
         self._synapse_client = None
         self._script_user = None
@@ -41,7 +45,7 @@ class GhapMigrator:
         self._errors = []
 
     def start(self):
-        if(not os.path.exists(self._work_dir)):
+        if (not os.path.exists(self._work_dir)):
             os.makedirs(self._work_dir)
 
         print('CSV File: {0}'.format(self._csv_file_name))
@@ -52,6 +56,25 @@ class GhapMigrator:
 
         self.synapse_login()
         self._script_user = self._synapse_client.getUserProfile()
+
+        if self._admin_team_id != None and self._admin_team_id.strip() != '':
+            print('Loading Admin Team ID: {0}'.format(self._admin_team_id))
+            self._admin_team = self._synapse_client.getTeam(
+                self._admin_team_id)
+            print('Admin Team Loaded: {0}'.format(self._admin_team.name))
+        else:
+            self._admin_team_id = None
+
+        if self._storage_location_id != None and self._storage_location_id.strip() != '':
+            print('Loading Storage Location ID: {0}'.format(
+                self._storage_location_id))
+            self._storage_location = self._synapse_client.getMyStorageLocationSetting(
+                self._storage_location_id)
+            print('Storage Location: {0}'.format(
+                self._storage_location['bucket']))
+        else:
+            self._storage_location_id = None
+
         self.process_csv()
 
         if len(self._git_to_syn_mappings) > 0:
@@ -79,6 +102,7 @@ class GhapMigrator:
 
         self._synapse_client = synapseclient.Synapse()
         self._synapse_client.login(syn_user, syn_pass, silent=True)
+        print('Logged in as: {0}'.format(syn_user))
 
     def process_csv(self):
         """
@@ -118,7 +142,7 @@ class GhapMigrator:
 
         starting_folder_name = ''
 
-        if synapse_project_id != '':
+        if synapse_project_id != None and synapse_project_id != '':
             # Find or create a Folder in the Project to store the repo.
             project = self.find_or_create_project(synapse_project_id)
             if project == None:
@@ -219,6 +243,14 @@ class GhapMigrator:
         else:
             project = self._synapse_client.store(Project(project_name_or_id))
             print('Created Project: {0}: {1}'.format(project.id, project.name))
+            if self._storage_location_id:
+                print('Setting storage location for project.')
+                self._synapse_client.setStorageLocation(
+                    project, self._storage_location_id)
+
+            if self._admin_team:
+                print('Granting admin permissions to team.')
+                self.grant_admin_access(project, self._admin_team.id)
 
         if project:
             self.set_synapse_folder(project.id, project)
@@ -249,6 +281,12 @@ class GhapMigrator:
                 # This will 404 when fetching a User instead of a Team.
                 if ex.response.status_code != 404:
                     raise ex
+
+    def grant_admin_access(self, project, grantee_id):
+        accessType = ['UPDATE', 'DELETE', 'CHANGE_PERMISSIONS',
+                      'CHANGE_SETTINGS', 'CREATE', 'DOWNLOAD', 'READ', 'MODERATE']
+        self._synapse_client.setPermissions(
+            project, grantee_id, accessType=accessType, warn_if_inherits=False)
 
     def find_or_create_folder(self, folder_path, full_synapse_path):
         folder = None
@@ -331,7 +369,11 @@ def main(argv):
                         help='Synapse username.', default=None)
     parser.add_argument('-p', '--password',
                         help='Synapse password.', default=None)
-    parser.add_argument('-s', '--skip-md5', help='Skip md5 checks.',
+    parser.add_argument('-a', '--admin-team-id',
+                        help='The Team ID to add to each Project.', default=None)
+    parser.add_argument('-s', '--storage-location-id',
+                        help='The Storage location ID for projects that are created.', default=None)
+    parser.add_argument('-m', '--skip-md5', help='Skip md5 checks.',
                         default=False, action='store_true')
 
     args = parser.parse_args()
@@ -340,6 +382,8 @@ def main(argv):
         args.csv,
         username=args.username,
         password=args.password,
+        admin_team_id=args.admin_team_id,
+        storage_location_id=args.storage_location_id,
         skip_md5=args.skip_md5
     ).start()
 
