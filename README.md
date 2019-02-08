@@ -6,7 +6,7 @@ A utility to migrate GIT repositories to Synapse.
 
 ```shell
 usage: ghap_migrator.py [-h] [-u USERNAME] [-p PASSWORD] [-a ADMIN_TEAM_ID]
-                        [-s STORAGE_LOCATION_ID] [-m]
+                        [-s STORAGE_LOCATION_ID] [-m] [-l LOG_LEVEL]
                         csv
 
 positional arguments:
@@ -23,4 +23,6 @@ optional arguments:
   -s STORAGE_LOCATION_ID, --storage-location-id STORAGE_LOCATION_ID
                         The Storage location ID for projects that are created.
   -m, --skip-md5        Skip md5 checks.
+  -l LOG_LEVEL, --log-level LOG_LEVEL
+                        Set the logging level.
 ```
