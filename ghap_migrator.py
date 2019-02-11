@@ -35,7 +35,7 @@ from io import StringIO
 class GhapMigrator:
 
     def __init__(self, csv_filename, username=None, password=None, admin_team_id=None, storage_location_id=None,
-                 skip_md5=False):
+                 skip_md5=False, max_threads=None):
         self._csv_filename = csv_filename
         self._username = username
         self._password = password
@@ -51,6 +51,7 @@ class GhapMigrator:
         self._git_to_syn_mappings = []
         self._errors = []
         self._thread_lock = threading.Lock()
+        self._max_threads = max_threads
 
     def log_error(self, msg):
         self._errors.append(msg)
@@ -207,7 +208,7 @@ class GhapMigrator:
 
         dirs, files = self.get_dirs_and_files(local_path)
 
-        with concurrent.futures.ThreadPoolExecutor() as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=self._max_threads) as executor:
             # Upload the directories.
             for dir_entry in dirs:
                 syn_dir = self.find_or_create_folder(dir_entry.path, parent)
@@ -470,6 +471,8 @@ def main():
                         help='The Storage location ID for projects that are created.', default=None)
     parser.add_argument('-m', '--skip-md5', help='Skip md5 checks.',
                         default=False, action='store_true')
+    parser.add_argument('-t', '--threads',
+                        help='Set the maximum number of threads to run.', type=int, default=None)
     parser.add_argument('-l', '--log-level',
                         help='Set the logging level.', default='INFO')
 
@@ -505,7 +508,8 @@ def main():
         password=args.password,
         admin_team_id=args.admin_team_id,
         storage_location_id=args.storage_location_id,
-        skip_md5=args.skip_md5
+        skip_md5=args.skip_md5,
+        max_threads=args.threads
     ).start()
 
 
