@@ -179,7 +179,6 @@ class GhapMigrator:
             for file_name in filenames:
                 if file_name.endswith('.gitlog'):
                     os.remove(os.path.join(dirpath, file_name))
-                    print('Removing GITLOG: {0}'.format(file_name))
                 else:
                     # TODO: Sanitize
                     pass
