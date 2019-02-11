@@ -22,8 +22,11 @@ import sh
 import time
 import random
 import csv
+import string
+import unicodedata
 import concurrent.futures
 import threading
+from scandir import scandir
 import synapseclient
 from synapseclient import Project, Folder, File
 from io import StringIO
@@ -31,9 +34,9 @@ from io import StringIO
 
 class GhapMigrator:
 
-    def __init__(self, csv_file_name, username=None, password=None, admin_team_id=None, storage_location_id=None,
+    def __init__(self, csv_filename, username=None, password=None, admin_team_id=None, storage_location_id=None,
                  skip_md5=False):
-        self._csv_file_name = csv_file_name
+        self._csv_filename = csv_filename
         self._username = username
         self._password = password
         self._admin_team_id = admin_team_id
@@ -57,7 +60,7 @@ class GhapMigrator:
         if not os.path.exists(self._work_dir):
             os.makedirs(self._work_dir)
 
-        logging.info('CSV File: {0}'.format(self._csv_file_name))
+        logging.info('CSV File: {0}'.format(self._csv_filename))
         logging.info('Temp Directory: {0}'.format(self._work_dir))
 
         if self._skip_md5:
@@ -122,7 +125,7 @@ class GhapMigrator:
                               SynID = Use an existing Project and upload into a new Folder in the Project.
           synapse_path:       The folder path in Synapse to store the files (e.g., EDD/common)
         """
-        with open(self._csv_file_name) as csvfile:
+        with open(self._csv_filename) as csvfile:
             reader = csv.DictReader(csvfile, delimiter=',')
             for row in reader:
                 git_url = row['git_url'].strip()
@@ -173,47 +176,56 @@ class GhapMigrator:
                 full_path = os.path.join(full_path, folder)
                 parent = self.find_or_create_folder(full_path, parent)
 
-        # Delete any existing *.gitlog files. These will be present when the script is re-run.
-        # Sanitize file names.
-        for dirpath, _, filenames in os.walk(repo_path):
-            for file_name in filenames:
-                if file_name.endswith('.gitlog'):
-                    os.remove(os.path.join(dirpath, file_name))
-                else:
-                    # TODO: Sanitize
-                    pass
+        self.upload_folder(repo_path, parent)
 
-        # Create the folders and upload the files.
+    def get_dirs_and_files(self, local_path):
+        dirs = []
+        files = []
+
+        for entry in scandir(local_path):
+            if entry.is_dir(follow_symlinks=False):
+                # Do not include .git
+                if os.path.basename(entry.path) == '.git':
+                    logging.info('Skipping GIT Directory: {0}'.format(entry.path))
+                    continue
+
+                dirs.append(entry)
+            else:
+                # Skip the *.gitlog files since they will be created during upload.
+                if os.path.basename(entry.path).endswith('.gitlog'):
+                    continue
+
+                files.append(entry)
+
+        dirs.sort(key=lambda f: f.name)
+        files.sort(key=lambda f: f.name)
+
+        return dirs, files
+
+    def upload_folder(self, local_path, synapse_parent):
+        parent = synapse_parent
+
+        dirs, files = self.get_dirs_and_files(local_path)
+
         with concurrent.futures.ThreadPoolExecutor() as executor:
-            for dirpath, _, filenames in os.walk(repo_path):
+            # Upload the directories.
+            for dir_entry in dirs:
+                syn_dir = self.find_or_create_folder(dir_entry.path, parent)
+                executor.submit(self.upload_folder, dir_entry.path, syn_dir)
 
-                if dirpath != repo_path:
-                    folder_path = dirpath.replace(repo_path + os.sep, '')
+            # Upload the files
+            for file_entry in files:
+                # Create the GIT log for the file.
+                filename = os.path.basename(file_entry.path)
+                dirpath = os.path.dirname(file_entry.path)
+                git_log_filename = os.path.join(dirpath, '{0}.gitlog'.format(filename))
+                sh.git.bake('--no-pager', _cwd=dirpath).log(filename, _out=git_log_filename, _tty_out=False)
 
-                    # Do not process hidden folders, such as .git
-                    if os.path.basename(folder_path).startswith('.'):
-                        logging.info('Skipping Hidden Directory: {0}'.format(folder_path))
-                        continue
-
-                    parent = self.find_or_create_folder(dirpath, parent)
-
-                for filename in filenames:
-                    full_file_name = os.path.join(dirpath, filename)
-
-                    # Do not process hidden folders, such as .gitignore
-                    if filename.startswith('.'):
-                        logging.info('Skipping Hidden File: {0}'.format(full_file_name))
-                        continue
-
-                    # Get the GIT log for the file.
-                    git_log_file_name = os.path.join(dirpath, '{0}.gitlog'.format(filename))
-                    sh.git.bake('--no-pager', _cwd=dirpath).log(filename, _out=git_log_file_name, _tty_out=False)
-
-                    for upload_file_name in [full_file_name, git_log_file_name]:
-                        if os.path.getsize(upload_file_name) > 0:
-                            executor.submit(self.find_or_upload_file, upload_file_name, parent)
-                        else:
-                            logging.info('Skipping Empty File: {0}'.format(upload_file_name))
+                for upload_filename in [file_entry.path, git_log_filename]:
+                    if os.path.getsize(upload_filename) > 0:
+                        executor.submit(self.find_or_upload_file, upload_filename, parent)
+                    else:
+                        logging.info('Skipping Empty File: {0}'.format(upload_filename))
 
     def find_or_create_project(self, project_name_or_id):
         project = None
@@ -288,11 +300,14 @@ class GhapMigrator:
             return
 
         folder_name = os.path.basename(path)
-        full_synapse_path = self.get_synapse_path(folder_name, synapse_parent)
 
-        logging.info('Processing Folder: {0}{1}  -> {2}'.format(path, os.linesep, full_synapse_path))
+        sanitized_folder_name = self.sanitize_name(folder_name)
+        if sanitized_folder_name != folder_name:
+            logging.info('Sanitizing folder name: {0} -> {1}'.format(folder_name, sanitized_folder_name))
 
-        syn_folder_id = self._synapse_client.findEntityId(folder_name, parent=synapse_parent)
+        full_synapse_path = self.get_synapse_path(sanitized_folder_name, synapse_parent)
+
+        syn_folder_id = self._synapse_client.findEntityId(sanitized_folder_name, parent=synapse_parent)
 
         synapse_folder = None
 
@@ -301,7 +316,7 @@ class GhapMigrator:
             self.set_synapse_parent(synapse_folder)
             logging.info('Folder Already Exists: {0}{1}  -> {2}'.format(path, os.linesep, full_synapse_path))
         else:
-            synapse_folder = Folder(name=folder_name, parent=synapse_parent)
+            synapse_folder = Folder(name=sanitized_folder_name, parent=synapse_parent)
             max_attempts = 10
             attempt_number = 0
 
@@ -333,15 +348,20 @@ class GhapMigrator:
             self.log_error('Parent not found, cannot upload file: {0}'.format(local_file))
             return None
 
-        file_name = os.path.basename(local_file)
-        full_synapse_path = self.get_synapse_path(file_name, synapse_parent)
+        filename = os.path.basename(local_file)
+
+        sanitized_filename = self.sanitize_name(filename)
+        if sanitized_filename != filename:
+            logging.info('Sanitizing file: {0} -> {1}'.format(filename, sanitized_filename))
+
+        full_synapse_path = self.get_synapse_path(sanitized_filename, synapse_parent)
 
         needs_upload = True
         synapse_file = None
 
         if not self._skip_md5:
             # Check if the file has already been uploaded and has not changed since being uploaded.
-            syn_file_id = self._synapse_client.findEntityId(file_name, parent=synapse_parent)
+            syn_file_id = self._synapse_client.findEntityId(sanitized_filename, parent=synapse_parent)
 
             if syn_file_id:
                 synapse_file = self._synapse_client.get(syn_file_id, downloadFile=False)
@@ -351,14 +371,15 @@ class GhapMigrator:
                 if local_md5 == synapse_file_md5:
                     needs_upload = False
                     logging.info(
-                        'File Already Uploaded: {0}{1}  -> {2}'.format(local_file, os.linesep, full_synapse_path))
+                        'File Already Uploaded and Current: {0}{1}  -> {2}'.format(local_file, os.linesep,
+                                                                                   full_synapse_path))
                 else:
                     synapse_file = None
                     logging.info('File Already Uploaded but has changes: {0}{1}  -> {2}'.format(local_file, os.linesep,
                                                                                                 full_synapse_path))
 
         if needs_upload:
-            synapse_file = File(path=local_file, parent=synapse_parent)
+            synapse_file = File(path=local_file, name=sanitized_filename, parent=synapse_parent)
 
             max_attempts = 10
             attempt_number = 0
@@ -385,9 +406,9 @@ class GhapMigrator:
 
         return synapse_file
 
-    def get_local_file_md5(self, file_name):
+    def get_local_file_md5(self, filename):
         out_buffer = StringIO()
-        sh.md5sum(file_name, _out=out_buffer)
+        sh.md5sum(filename, _out=out_buffer)
         local_file_md5 = out_buffer.getvalue().split()[0]
         return local_file_md5
 
@@ -399,7 +420,7 @@ class GhapMigrator:
         with self._thread_lock:
             return self._synapse_parents.get(parent_id, None)
 
-    def get_synapse_path(self, folder_or_file_name, parent):
+    def get_synapse_path(self, folder_or_filename, parent):
         segments = []
 
         if isinstance(parent, Project):
@@ -410,9 +431,15 @@ class GhapMigrator:
                 segments.insert(0, next_parent.name)
                 next_parent = self.get_synapse_parent(next_parent.parentId)
 
-        segments.append(folder_or_file_name)
+        segments.append(folder_or_filename)
 
         return os.path.join(*segments)
+
+    VALID_FILENAME_CHARS = frozenset("-_.() %s%s" % (string.ascii_letters, string.digits))
+
+    def sanitize_name(self, name):
+        cleaned_filename = unicodedata.normalize('NFKD', u'{0}'.format(name)).encode('ASCII', 'ignore')
+        return ''.join(c for c in cleaned_filename if c in self.VALID_FILENAME_CHARS)
 
 
 class LogFilter(logging.Filter):
@@ -449,10 +476,10 @@ def main():
     args = parser.parse_args()
 
     log_level = getattr(logging, args.log_level.upper())
-    log_file_name = 'log.txt'
+    log_filename = 'log.txt'
 
     logging.basicConfig(
-        filename=log_file_name,
+        filename=log_filename,
         filemode='w',
         format='%(asctime)s %(levelname)s: %(message)s',
         level=log_level

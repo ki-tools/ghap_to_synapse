@@ -1,3 +1,4 @@
 synapseclient
 sh
 futures
+scandir
