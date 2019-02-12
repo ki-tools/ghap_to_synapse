@@ -209,11 +209,6 @@ class GhapMigrator:
 
         dirs, files = self.get_dirs_and_files(local_path)
 
-        # Upload the directories.
-        for dir_entry in dirs:
-            syn_dir = self.find_or_create_folder(dir_entry.path, parent)
-            executor.submit(self.upload_folder, executor, dir_entry.path, syn_dir)
-
         # Upload the files
         for file_entry in files:
             # Create the GIT log for the file.
@@ -227,6 +222,11 @@ class GhapMigrator:
                     executor.submit(self.find_or_upload_file, upload_filename, parent)
                 else:
                     logging.info('Skipping Empty File: {0}'.format(upload_filename))
+
+        # Upload the directories.
+        for dir_entry in dirs:
+            syn_dir = self.find_or_create_folder(dir_entry.path, parent)
+            self.upload_folder(executor, dir_entry.path, syn_dir)
 
     def find_or_create_project(self, project_name_or_id):
         project = None
