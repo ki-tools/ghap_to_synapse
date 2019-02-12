@@ -177,7 +177,8 @@ class GhapMigrator:
                 full_path = os.path.join(full_path, folder)
                 parent = self.find_or_create_folder(full_path, parent)
 
-        self.upload_folder(repo_path, parent)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=self._max_threads) as executor:
+            self.upload_folder(executor, repo_path, parent)
 
     def get_dirs_and_files(self, local_path):
         dirs = []
@@ -203,30 +204,29 @@ class GhapMigrator:
 
         return dirs, files
 
-    def upload_folder(self, local_path, synapse_parent):
+    def upload_folder(self, executor, local_path, synapse_parent):
         parent = synapse_parent
 
         dirs, files = self.get_dirs_and_files(local_path)
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=self._max_threads) as executor:
-            # Upload the directories.
-            for dir_entry in dirs:
-                syn_dir = self.find_or_create_folder(dir_entry.path, parent)
-                executor.submit(self.upload_folder, dir_entry.path, syn_dir)
+        # Upload the directories.
+        for dir_entry in dirs:
+            syn_dir = self.find_or_create_folder(dir_entry.path, parent)
+            executor.submit(self.upload_folder, executor, dir_entry.path, syn_dir)
 
-            # Upload the files
-            for file_entry in files:
-                # Create the GIT log for the file.
-                filename = os.path.basename(file_entry.path)
-                dirpath = os.path.dirname(file_entry.path)
-                git_log_filename = os.path.join(dirpath, '{0}.gitlog'.format(filename))
-                sh.git.bake('--no-pager', _cwd=dirpath).log(filename, _out=git_log_filename, _tty_out=False)
+        # Upload the files
+        for file_entry in files:
+            # Create the GIT log for the file.
+            filename = os.path.basename(file_entry.path)
+            dirpath = os.path.dirname(file_entry.path)
+            git_log_filename = os.path.join(dirpath, '{0}.gitlog'.format(filename))
+            sh.git.bake('--no-pager', _cwd=dirpath).log(filename, _out=git_log_filename, _tty_out=False)
 
-                for upload_filename in [file_entry.path, git_log_filename]:
-                    if os.path.getsize(upload_filename) > 0:
-                        executor.submit(self.find_or_upload_file, upload_filename, parent)
-                    else:
-                        logging.info('Skipping Empty File: {0}'.format(upload_filename))
+            for upload_filename in [file_entry.path, git_log_filename]:
+                if os.path.getsize(upload_filename) > 0:
+                    executor.submit(self.find_or_upload_file, upload_filename, parent)
+                else:
+                    logging.info('Skipping Empty File: {0}'.format(upload_filename))
 
     def find_or_create_project(self, project_name_or_id):
         project = None
