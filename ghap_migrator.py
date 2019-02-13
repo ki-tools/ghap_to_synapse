@@ -205,6 +205,10 @@ class GhapMigrator:
         return dirs, files
 
     def upload_folder(self, executor, local_path, synapse_parent):
+        if not synapse_parent:
+            self.log_error('Parent not found, cannot upload folder: {0}'.format(local_path))
+            return
+
         parent = synapse_parent
 
         dirs, files = self.get_dirs_and_files(local_path)
@@ -218,10 +222,7 @@ class GhapMigrator:
             sh.git.bake('--no-pager', _cwd=dirpath).log(filename, _out=git_log_filename, _tty_out=False)
 
             for upload_filename in [file_entry.path, git_log_filename]:
-                if os.path.getsize(upload_filename) > 0:
-                    executor.submit(self.find_or_upload_file, upload_filename, parent)
-                else:
-                    logging.info('Skipping Empty File: {0}'.format(upload_filename))
+                executor.submit(self.find_or_upload_file, upload_filename, parent)
 
         # Upload the directories.
         for dir_entry in dirs:
@@ -246,13 +247,13 @@ class GhapMigrator:
             pass
 
         if project:
-            logging.info('Found Project: {0}: {1}'.format(project.id, project.name))
+            logging.info('[Project FOUND] {0}: {1}'.format(project.id, project.name))
             if not self.has_write_permissions(project):
                 self.log_error('Script user does not have WRITE permission to Project: {0}'.format(project_name_or_id))
                 return None
         else:
             project = self._synapse_client.store(Project(project_name_or_id))
-            logging.info('Created Project: {0}: {1}'.format(project.id, project.name))
+            logging.info('[Project CREATED] {0}: {1}'.format(project.id, project.name))
             if self._storage_location_id:
                 logging.info('Setting storage location for project: {0}: {1}'.format(project.id, project.name))
                 self._synapse_client.setStorageLocation(project, self._storage_location_id)
@@ -296,9 +297,11 @@ class GhapMigrator:
         self._synapse_client.setPermissions(project, grantee_id, accessType=accessType, warn_if_inherits=False)
 
     def find_or_create_folder(self, path, synapse_parent):
+        synapse_folder = None
+
         if not synapse_parent:
             self.log_error('Parent not found, cannot create folder: {0}'.format(path))
-            return
+            return synapse_folder
 
         folder_name = os.path.basename(path)
 
@@ -310,44 +313,47 @@ class GhapMigrator:
 
         syn_folder_id = self._synapse_client.findEntityId(sanitized_folder_name, parent=synapse_parent)
 
-        synapse_folder = None
-
         if syn_folder_id:
             synapse_folder = self._synapse_client.get(syn_folder_id, downloadFile=False)
             self.set_synapse_parent(synapse_folder)
-            logging.info('Folder Already Exists: {0}{1}  -> {2}'.format(path, os.linesep, full_synapse_path))
+            logging.info('[Folder EXISTS]: {0} -> {1}'.format(path, full_synapse_path))
         else:
-            synapse_folder = Folder(name=sanitized_folder_name, parent=synapse_parent)
-            max_attempts = 10
+            max_attempts = 5
             attempt_number = 0
+            exception = None
 
-            while attempt_number < max_attempts and not synapse_folder.get('id', None):
+            while attempt_number < max_attempts and not synapse_folder:
                 try:
                     attempt_number += 1
-                    synapse_folder = self._synapse_client.store(synapse_folder, forceVersion=False)
+                    exception = None
+                    synapse_folder = self._synapse_client.store(
+                        Folder(name=sanitized_folder_name, parent=synapse_parent), forceVersion=False)
                 except Exception as ex:
-                    self.log_error(
-                        'Error creating folder: {0}{1}  -> {2}{1}  -> {3}'.format(path, os.linesep, full_synapse_path,
-                                                                                  str(ex)))
+                    exception = ex
+                    self.log_error('[Folder ERROR] {0} -> {1} : {2}'.format(path, full_synapse_path, str(ex)))
                     if attempt_number < max_attempts:
                         sleep_time = random.randint(1, 5)
-                        logging.info('Retrying folder: {0}{1}  -> {2}{1}  -> in {3} seconds'.format(path, os.linesep,
-                                                                                                    full_synapse_path,
-                                                                                                    sleep_time))
+                        logging.info('[Folder RETRY in {0}s] {1} -> {2}'.format(sleep_time, path, full_synapse_path))
                         time.sleep(sleep_time)
 
-            if not synapse_folder.get('id', None):
-                self.log_error('Failed to create folder: {0}{1}  -> {2}'.format(path, os.linesep, full_synapse_path))
+            if exception:
+                self.log_error('[Folder FAILED] {0} -> {1} : {2}'.format(path, full_synapse_path, str(exception)))
             else:
-                logging.info('Folder created: {0}{1}  -> {2}'.format(path, os.linesep, full_synapse_path))
+                logging.info('[Folder] {0} -> {1}'.format(path, full_synapse_path))
                 self.set_synapse_parent(synapse_folder)
 
         return synapse_folder
 
     def find_or_upload_file(self, local_file, synapse_parent):
+        synapse_file = None
+
         if not synapse_parent:
             self.log_error('Parent not found, cannot upload file: {0}'.format(local_file))
-            return None
+            return synapse_file
+
+        if os.path.getsize(local_file) < 1:
+            logging.info('Skipping Empty File: {0}'.format(local_file))
+            return synapse_file
 
         filename = os.path.basename(local_file)
 
@@ -356,9 +362,6 @@ class GhapMigrator:
             logging.info('Sanitizing file: {0} -> {1}'.format(filename, sanitized_filename))
 
         full_synapse_path = self.get_synapse_path(sanitized_filename, synapse_parent)
-
-        needs_upload = True
-        synapse_file = None
 
         if not self._skip_md5:
             # Check if the file has already been uploaded and has not changed since being uploaded.
@@ -369,41 +372,36 @@ class GhapMigrator:
 
                 synapse_file_md5 = synapse_file._file_handle['contentMd5']
                 local_md5 = self.get_local_file_md5(local_file)
+
                 if local_md5 == synapse_file_md5:
-                    needs_upload = False
-                    logging.info(
-                        'File Already Uploaded and Current: {0}{1}  -> {2}'.format(local_file, os.linesep,
-                                                                                   full_synapse_path))
+                    logging.info('[File is CURRENT] {0} -> {1}'.format(local_file, full_synapse_path))
+                    return synapse_file
                 else:
+                    logging.info('[File has CHANGES] {0} -> {1}'.format(local_file, full_synapse_path))
                     synapse_file = None
-                    logging.info('File Already Uploaded but has changes: {0}{1}  -> {2}'.format(local_file, os.linesep,
-                                                                                                full_synapse_path))
 
-        if needs_upload:
-            synapse_file = File(path=local_file, name=sanitized_filename, parent=synapse_parent)
+        max_attempts = 5
+        attempt_number = 0
+        exception = None
 
-            max_attempts = 10
-            attempt_number = 0
+        while attempt_number < max_attempts and not synapse_file:
+            try:
+                attempt_number += 1
+                exception = None
+                synapse_file = self._synapse_client.store(
+                    File(path=local_file, name=sanitized_filename, parent=synapse_parent), forceVersion=False)
+            except Exception as ex:
+                exception = ex
+                self.log_error('[File ERROR] {0} -> {1} : {2}'.format(local_file, full_synapse_path, str(ex)))
+                if attempt_number < max_attempts:
+                    sleep_time = random.randint(1, 5)
+                    logging.info('[File RETRY in {0}s] {1} -> {2}'.format(sleep_time, local_file, full_synapse_path))
+                    time.sleep(sleep_time)
 
-            while attempt_number < max_attempts and not synapse_file.get('id', None):
-                try:
-                    attempt_number += 1
-                    synapse_file = self._synapse_client.store(synapse_file, forceVersion=False)
-                except Exception as ex:
-                    self.log_error('Error uploading file: {0}{1}  -> {2}{1}  -> {3}'.format(local_file, os.linesep,
-                                                                                            full_synapse_path, str(ex)))
-                    if attempt_number < max_attempts:
-                        sleep_time = random.randint(1, 5)
-                        logging.info(
-                            'Retrying in {0} seconds: {1}{2}  -> {3}'.format(sleep_time, local_file, os.linesep,
-                                                                             full_synapse_path))
-                        time.sleep(sleep_time)
-
-            if not synapse_file.get('id', None):
-                self.log_error(
-                    'Failed to upload file: {0}{1}  -> {2}'.format(local_file, os.linesep, full_synapse_path))
-            else:
-                logging.info('File uploaded: {0}{1}  -> {2}'.format(local_file, os.linesep, full_synapse_path))
+        if exception:
+            self.log_error('[File FAILED] {0} -> {1} : {2}'.format(local_file, full_synapse_path, str(exception)))
+        else:
+            logging.info('[File] {0} -> {1}'.format(local_file, full_synapse_path))
 
         return synapse_file
 
