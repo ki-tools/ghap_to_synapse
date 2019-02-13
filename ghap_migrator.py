@@ -92,9 +92,9 @@ class GhapMigrator:
                 logging.info(' - {0}'.format(line))
 
         if len(self._errors) > 0:
-            self.log_error('Completed with Errors:')
+            logging.info('Completed with Errors:')
             for line in self._errors:
-                self.log_error(' - {0}'.format(line))
+                logging.error(' - {0}'.format(line))
         else:
             logging.info('Completed Successfully.')
 
@@ -140,16 +140,27 @@ class GhapMigrator:
         repo_name = git_url.split('/')[-1].replace('.git', '')
         repo_path = os.path.join(self._work_dir, repo_name)
 
+        git_exception = None
+
         if os.path.exists(repo_path):
             # Pull
             logging.info(' Pulling Repo into {0}'.format(repo_path))
-            sh.git.bake(_cwd=repo_path).pull('--rebase')
+            try:
+                sh.git.bake(_cwd=repo_path).pull('--rebase')
+            except Exception as ex:
+                git_exception = ex
         else:
             # Checkout
             logging.info(' Checking Out into {0}'.format(repo_path))
-            sh.git.bake(_cwd=self._work_dir).clone(git_url)
+            try:
+                sh.git.bake(_cwd=self._work_dir).clone(git_url)
+            except Exception as ex:
+                git_exception = ex
 
-        self.push_to_synapse(git_url, repo_name, repo_path, synapse_project_id, synapse_path)
+        if git_exception:
+            self.log_error('Error pulling repo: {0} : {1}'.format(git_url, str(git_exception)))
+        else:
+            self.push_to_synapse(git_url, repo_name, repo_path, synapse_project_id, synapse_path)
 
     def push_to_synapse(self, git_url, repo_name, repo_path, synapse_project_id, synapse_path):
         project = None
