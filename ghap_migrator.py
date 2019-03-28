@@ -35,7 +35,7 @@ from io import StringIO
 class GhapMigrator:
 
     def __init__(self, csv_filename, username=None, password=None, admin_team_id=None, storage_location_id=None,
-                 skip_md5=False, max_threads=None):
+                 skip_md5=False, max_threads=None, work_dir=None):
         self._csv_filename = csv_filename
         self._username = username
         self._password = password
@@ -44,7 +44,13 @@ class GhapMigrator:
         self._storage_location_id = storage_location_id
         self._storage_location = None
         self._skip_md5 = skip_md5
-        self._work_dir = os.path.join(os.path.expanduser('~'), 'tmp', 'ghap')
+        self._work_dir = None
+
+        if work_dir is None:
+            self._work_dir = os.path.join(os.path.expanduser('~'), 'tmp', 'ghap')
+        else:
+            self._work_dir = os.path.abspath(os.path.expanduser(work_dir))
+
         self._synapse_client = None
         self._script_user = None
         self._synapse_parents = {}
@@ -482,6 +488,7 @@ def main():
                         default=False, action='store_true')
     parser.add_argument('-t', '--threads',
                         help='Set the maximum number of threads to run.', type=int, default=None)
+    parser.add_argument('-w', '--work-dir', help='The directory to git pull repos into.', default=None)
     parser.add_argument('-l', '--log-level',
                         help='Set the logging level.', default='INFO')
 
@@ -518,7 +525,8 @@ def main():
         admin_team_id=args.admin_team_id,
         storage_location_id=args.storage_location_id,
         skip_md5=args.skip_md5,
-        max_threads=args.threads
+        max_threads=args.threads,
+        work_dir=args.work_dir
     ).start()
 
 
