@@ -20,6 +20,7 @@ import logging
 import getpass
 import sh
 import time
+import datetime
 import random
 import csv
 import string
@@ -58,15 +59,19 @@ class GhapMigrator:
         self._errors = []
         self._thread_lock = threading.Lock()
         self._max_threads = max_threads
+        self._start_time = None
+        self._end_time = None
 
     def log_error(self, msg):
         self._errors.append(msg)
         logging.error(msg)
 
     def start(self):
+        self._start_time = time.time()
         if not os.path.exists(self._work_dir):
             os.makedirs(self._work_dir)
 
+        logging.info("Started at: {0}".format(datetime.datetime.now()))
         logging.info('CSV File: {0}'.format(self._csv_filename))
         logging.info('Temp Directory: {0}'.format(self._work_dir))
 
@@ -91,6 +96,9 @@ class GhapMigrator:
             self._storage_location_id = None
 
         self.process_csv()
+
+        run_duration = datetime.timedelta(seconds=(time.time() - self._start_time))
+        logging.info("Ended at: {0}, total duration: {1}".format(datetime.datetime.now(), run_duration))
 
         if len(self._git_to_syn_mappings) > 0:
             logging.info('Synapse Projects:')
@@ -236,7 +244,9 @@ class GhapMigrator:
             filename = os.path.basename(file_entry.path)
             dirpath = os.path.dirname(file_entry.path)
             git_log_filename = os.path.join(dirpath, '{0}.gitlog'.format(filename))
-            sh.git.bake('--no-pager', _cwd=dirpath).log('--pretty=commit %H%nDate: %cd%nAuthor: %an%nSubject: %s%nNotes:%N%n', filename, _out=git_log_filename, _tty_out=False)
+            sh.git.bake('--no-pager', _cwd=dirpath).log(
+                '--pretty=commit %H%nDate: %cd%nAuthor: %an%nSubject: %s%nNotes:%N%n', filename, _out=git_log_filename,
+                _tty_out=False)
 
             for upload_filename in [file_entry.path, git_log_filename]:
                 executor.submit(self.find_or_upload_file, upload_filename, parent)
