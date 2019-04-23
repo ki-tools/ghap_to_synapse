@@ -135,6 +135,9 @@ class GhapMigrator:
         Process the CSV file.
         The format CSV format is: "git_url,synapse_project_id"
           git_url:            The full GIT URL of the repository to migrate.
+          git_folder:         The folder within the repo to migrate.
+                              Blank = Migrate the whole repo.
+                              Name = Only migrate the specific folder.
           synapse_project_id: The Synapse Project to migrate the repository into.
                               Blank = Create a new Project.
                               SynID = Use an existing Project and upload into a new Folder in the Project.
@@ -144,12 +147,15 @@ class GhapMigrator:
             reader = csv.DictReader(csvfile, delimiter=',')
             for row in reader:
                 git_url = row['git_url'].strip()
+                git_folder = row['git_folder'].strip()
                 synapse_project_id = row['synapse_project_id'].strip()
                 synapse_path = row['synapse_path'].replace(' ', '').lstrip(os.sep).rstrip(os.sep)
-                self.migrate(git_url, synapse_project_id, synapse_path)
+                self.migrate(git_url, git_folder, synapse_project_id, synapse_path)
 
-    def migrate(self, git_url, synapse_project_id, synapse_path):
+    def migrate(self, git_url, git_folder, synapse_project_id, synapse_path):
         logging.info('Processing {0}'.format(git_url))
+        if git_folder:
+            logging.info('  - Folder: {0}'.format(git_folder))
 
         repo_name = git_url.split('/')[-1].replace('.git', '')
         repo_path = os.path.join(self._work_dir, repo_name)
@@ -158,14 +164,14 @@ class GhapMigrator:
 
         if os.path.exists(repo_path):
             # Pull
-            logging.info(' Pulling Repo into {0}'.format(repo_path))
+            logging.info('  - Pulling Repo into {0}'.format(repo_path))
             try:
                 sh.git.bake(_cwd=repo_path).pull('--rebase')
             except Exception as ex:
                 git_exception = ex
         else:
             # Checkout
-            logging.info(' Checking Out into {0}'.format(repo_path))
+            logging.info('  - Checking Out into {0}'.format(repo_path))
             try:
                 sh.git.bake(_cwd=self._work_dir).clone(git_url)
             except Exception as ex:
@@ -174,9 +180,9 @@ class GhapMigrator:
         if git_exception:
             self.log_error('Error pulling repo: {0} : {1}'.format(git_url, str(git_exception)))
         else:
-            self.push_to_synapse(git_url, repo_name, repo_path, synapse_project_id, synapse_path)
+            self.push_to_synapse(git_url, repo_name, repo_path, git_folder, synapse_project_id, synapse_path)
 
-    def push_to_synapse(self, git_url, repo_name, repo_path, synapse_project_id, synapse_path):
+    def push_to_synapse(self, git_url, repo_name, repo_path, git_folder, synapse_project_id, synapse_path):
         project = None
 
         if synapse_project_id and synapse_project_id != '':
@@ -185,13 +191,19 @@ class GhapMigrator:
         else:
             # Find or Create the Project.
             project_name = 'GHAP - {0}'.format(repo_name)
+            if git_folder:
+                project_name += ' - {0}'.format(git_folder.replace('/', '-'))
             project = self.find_or_create_project(project_name)
 
         if not project:
             self.log_error('Could not get project for {0}.'.format(git_url))
             return
         else:
-            self._git_to_syn_mappings.append('{0} -> {1}'.format(git_url, project.id))
+            if git_folder:
+                self._git_to_syn_mappings.append(
+                    '{0} ({1}) -> {2} ({3})'.format(git_url, git_folder, project.name, project.id))
+            else:
+                self._git_to_syn_mappings.append('{0} -> {1} ({2})'.format(git_url, project.name, project.id))
 
         parent = project
 
@@ -202,8 +214,12 @@ class GhapMigrator:
                 full_path = os.path.join(full_path, folder)
                 parent = self.find_or_create_folder(full_path, parent)
 
+        start_path = repo_path
+        if git_folder:
+            start_path = os.path.join(repo_path, git_folder)
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=self._max_threads) as executor:
-            self.upload_folder(executor, repo_path, parent)
+            self.upload_folder(executor, start_path, parent)
 
     def get_dirs_and_files(self, local_path):
         dirs = []
