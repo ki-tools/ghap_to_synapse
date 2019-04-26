@@ -499,61 +499,65 @@ class LogFilter(logging.Filter):
 
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        'csv', help='CSV file with GIT repository URLs to process.')
-    parser.add_argument('-u', '--username',
-                        help='Synapse username.', default=None)
-    parser.add_argument('-p', '--password',
-                        help='Synapse password.', default=None)
-    parser.add_argument('-a', '--admin-team-id',
-                        help='The Team ID to add to each Project.', default=None)
-    parser.add_argument('-s', '--storage-location-id',
-                        help='The Storage location ID for projects that are created.', default=None)
-    parser.add_argument('-m', '--skip-md5', help='Skip md5 checks.',
-                        default=False, action='store_true')
-    parser.add_argument('-t', '--threads',
-                        help='Set the maximum number of threads to run.', type=int, default=None)
-    parser.add_argument('-w', '--work-dir', help='The directory to git pull repos into.', default=None)
-    parser.add_argument('-l', '--log-level',
-                        help='Set the logging level.', default='INFO')
+    try:
+        parser = argparse.ArgumentParser()
+        parser.add_argument(
+            'csv', help='CSV file with GIT repository URLs to process.')
+        parser.add_argument('-u', '--username',
+                            help='Synapse username.', default=None)
+        parser.add_argument('-p', '--password',
+                            help='Synapse password.', default=None)
+        parser.add_argument('-a', '--admin-team-id',
+                            help='The Team ID to add to each Project.', default=None)
+        parser.add_argument('-s', '--storage-location-id',
+                            help='The Storage location ID for projects that are created.', default=None)
+        parser.add_argument('-m', '--skip-md5', help='Skip md5 checks.',
+                            default=False, action='store_true')
+        parser.add_argument('-t', '--threads',
+                            help='Set the maximum number of threads to run.', type=int, default=None)
+        parser.add_argument('-w', '--work-dir', help='The directory to git pull repos into.', default=None)
+        parser.add_argument('-l', '--log-level',
+                            help='Set the logging level.', default='INFO')
 
-    args = parser.parse_args()
+        args = parser.parse_args()
 
-    log_level = getattr(logging, args.log_level.upper())
-    log_filename = 'log.txt'
+        log_level = getattr(logging, args.log_level.upper())
+        log_filename = 'log.txt'
 
-    logging.basicConfig(
-        filename=log_filename,
-        filemode='w',
-        format='%(asctime)s %(levelname)s: %(message)s',
-        level=log_level
-    )
+        logging.basicConfig(
+            filename=log_filename,
+            filemode='w',
+            format='%(asctime)s %(levelname)s: %(message)s',
+            level=log_level
+        )
 
-    # Add console logging.
-    console = logging.StreamHandler()
-    console.setLevel(log_level)
-    console.setFormatter(logging.Formatter('%(message)s'))
-    logging.getLogger().addHandler(console)
+        # Add console logging.
+        console = logging.StreamHandler()
+        console.setLevel(log_level)
+        console.setFormatter(logging.Formatter('%(message)s'))
+        logging.getLogger().addHandler(console)
 
-    # Filter logs
-    log_filter = LogFilter()
-    for logger in [logging.getLogger(name) for name in logging.root.manager.loggerDict]:
-        logger.addFilter(log_filter)
+        # Filter logs
+        log_filter = LogFilter()
+        for logger in [logging.getLogger(name) for name in logging.root.manager.loggerDict]:
+            logger.addFilter(log_filter)
 
-    # Silence sh logging
-    logging.getLogger("sh").setLevel(logging.ERROR)
+        # Silence sh logging
+        logging.getLogger("sh").setLevel(logging.ERROR)
 
-    GhapMigrator(
-        args.csv,
-        username=args.username,
-        password=args.password,
-        admin_team_id=args.admin_team_id,
-        storage_location_id=args.storage_location_id,
-        skip_md5=args.skip_md5,
-        max_threads=args.threads,
-        work_dir=args.work_dir
-    ).start()
+        GhapMigrator(
+            args.csv,
+            username=args.username,
+            password=args.password,
+            admin_team_id=args.admin_team_id,
+            storage_location_id=args.storage_location_id,
+            skip_md5=args.skip_md5,
+            max_threads=args.threads,
+            work_dir=args.work_dir
+        ).start()
+    except Exception:
+        logging.exception('Unhandled exception.')
+
 
 
 if __name__ == "__main__":
