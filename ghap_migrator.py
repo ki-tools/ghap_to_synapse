@@ -257,15 +257,16 @@ class GhapMigrator:
         # Upload the files
         for file_entry in files:
             # Create the GIT log for the file.
-            filename = os.path.basename(file_entry.path)
-            dirpath = os.path.dirname(file_entry.path)
-            git_log_filename = os.path.join(dirpath, '{0}.gitlog'.format(filename))
-            sh.git.bake('--no-pager', _cwd=dirpath).log(
-                '--pretty=commit %H%nDate: %cd%nAuthor: %an%nSubject: %s%nNotes:%N%n', filename, _out=git_log_filename,
-                _tty_out=False)
+            # filename = os.path.basename(file_entry.path)
+            # dirpath = os.path.dirname(file_entry.path)
 
-            for upload_filename in [file_entry.path, git_log_filename]:
-                executor.submit(self.find_or_upload_file, upload_filename, parent)
+            # git_log_filename = os.path.join(dirpath, '{0}.gitlog'.format(filename))
+            # sh.git.bake('--no-pager', _cwd=dirpath).log(
+            #     '--pretty=commit %H%nDate: %cd%nAuthor: %an%nSubject: %s%nNotes:%N%n', filename, _out=git_log_filename,
+            #     _tty_out=False)
+
+            executor.submit(self.find_or_upload_file, file_entry.path, parent)
+            # executor.submit(self.find_or_upload_file, git_log_filename, parent)
 
         # Upload the directories.
         for dir_entry in dirs:
