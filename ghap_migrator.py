@@ -475,7 +475,7 @@ class GhapMigrator:
             self.log_error('[File FAILED] {0} -> {1} : {2}'.format(local_file, full_synapse_path, str(exception)))
         else:
             synapse_file_md5 = synapse_file._file_handle['contentMd5']
-            if local_md5 == synapse_file_md5:
+            if local_md5 != synapse_file_md5:
                 self.log_error('Local MD5 does not match remote MD5 for: {0}'.format(local_file))
 
             self.add_processed_path(local_file)
