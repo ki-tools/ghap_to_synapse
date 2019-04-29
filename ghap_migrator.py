@@ -59,6 +59,7 @@ class GhapMigrator:
             'found': [],
             'processed': []
         }
+        self._full_synapse_paths = []
         self._errors = []
         self._thread_lock = threading.Lock()
         self._max_threads = max_threads
@@ -66,12 +67,31 @@ class GhapMigrator:
         self._end_time = None
 
     def log_error(self, msg):
-        self._errors.append(msg)
-        logging.error(msg)
+        """
+        Logs the error message and adds it to the errors list.
+        """
+        with self._thread_lock:
+            self._errors.append(msg)
+            logging.error(msg)
 
     def add_processed_path(self, path):
+        """
+        Adds a file/folder path to the stats.
+        This is used to verify each local file is uploaded to Synapse.
+        """
         with self._thread_lock:
             self._stats['processed'].append(path)
+
+    def add_full_synapse_path(self, full_synapse_path, local_path):
+        """
+        Keeps track of every file and folder created or uploaded to Synapse.
+        This is used to make sure sanitized filenames don't collide with other files.
+        """
+        with self._thread_lock:
+            if full_synapse_path in self._full_synapse_paths:
+                raise Exception('Duplicate synapse path found: {0} for: {1}'.format(full_synapse_path, local_path))
+            else:
+                self._full_synapse_paths.append(full_synapse_path)
 
     def check_git_lfs(self):
         """
@@ -270,34 +290,37 @@ class GhapMigrator:
         return dirs, files
 
     def upload_folder(self, executor, local_path, synapse_parent):
-        if not synapse_parent:
-            self.log_error('Parent not found, cannot upload folder: {0}'.format(local_path))
-            return
+        try:
+            if not synapse_parent:
+                self.log_error('Parent not found, cannot upload folder: {0}'.format(local_path))
+                return
 
-        parent = synapse_parent
+            parent = synapse_parent
 
-        dirs, files = self.get_dirs_and_files(local_path)
-        with self._thread_lock:
-            self._stats['found'] += [dir.path for dir in dirs] + [file.path for file in files]
+            dirs, files = self.get_dirs_and_files(local_path)
+            with self._thread_lock:
+                self._stats['found'] += [dir.path for dir in dirs] + [file.path for file in files]
 
-        # Upload the files
-        for file_entry in files:
-            # Create the GIT log for the file.
-            # filename = os.path.basename(file_entry.path)
-            # dirpath = os.path.dirname(file_entry.path)
+            # Upload the files
+            for file_entry in files:
+                # Create the GIT log for the file.
+                # filename = os.path.basename(file_entry.path)
+                # dirpath = os.path.dirname(file_entry.path)
 
-            # git_log_filename = os.path.join(dirpath, '{0}.gitlog'.format(filename))
-            # sh.git.bake('--no-pager', _cwd=dirpath).log(
-            #     '--pretty=commit %H%nDate: %cd%nAuthor: %an%nSubject: %s%nNotes:%N%n', filename, _out=git_log_filename,
-            #     _tty_out=False)
+                # git_log_filename = os.path.join(dirpath, '{0}.gitlog'.format(filename))
+                # sh.git.bake('--no-pager', _cwd=dirpath).log(
+                #     '--pretty=commit %H%nDate: %cd%nAuthor: %an%nSubject: %s%nNotes:%N%n', filename, _out=git_log_filename,
+                #     _tty_out=False)
 
-            executor.submit(self.find_or_upload_file, file_entry.path, parent)
-            # executor.submit(self.find_or_upload_file, git_log_filename, parent)
+                executor.submit(self.find_or_upload_file, file_entry.path, parent)
+                # executor.submit(self.find_or_upload_file, git_log_filename, parent)
 
-        # Upload the directories.
-        for dir_entry in dirs:
-            syn_dir = self.find_or_create_folder(dir_entry.path, parent)
-            self.upload_folder(executor, dir_entry.path, syn_dir)
+            # Upload the directories.
+            for dir_entry in dirs:
+                syn_dir = self.find_or_create_folder(dir_entry.path, parent)
+                self.upload_folder(executor, dir_entry.path, syn_dir)
+        except Exception as ex:
+            self.log_error('Error uploading folder: {0}, {1}'.format(local_path, ex))
 
     def find_or_create_project(self, project_name_or_id):
         project = None
@@ -380,6 +403,7 @@ class GhapMigrator:
             logging.info('Sanitizing folder name: {0} -> {1}'.format(folder_name, sanitized_folder_name))
 
         full_synapse_path = self.get_synapse_path(sanitized_folder_name, synapse_parent)
+        self.add_full_synapse_path(full_synapse_path, path)
 
         syn_folder_id = self._synapse_client.findEntityId(sanitized_folder_name, parent=synapse_parent)
 
@@ -418,68 +442,72 @@ class GhapMigrator:
 
     def find_or_upload_file(self, local_file, synapse_parent):
         synapse_file = None
+        try:
+            if not synapse_parent:
+                self.log_error('Parent not found, cannot upload file: {0}'.format(local_file))
+                return synapse_file
 
-        if not synapse_parent:
-            self.log_error('Parent not found, cannot upload file: {0}'.format(local_file))
-            return synapse_file
-
-        if os.path.getsize(local_file) < 1:
-            logging.info('Skipping Empty File: {0}'.format(local_file))
-            self.add_processed_path(local_file)
-            return synapse_file
-
-        filename = os.path.basename(local_file)
-
-        sanitized_filename = self.sanitize_name(filename)
-        if sanitized_filename != filename:
-            logging.info('Sanitizing file: {0} -> {1}'.format(filename, sanitized_filename))
-
-        full_synapse_path = self.get_synapse_path(sanitized_filename, synapse_parent)
-
-        # Check if the file has already been uploaded and has not changed since being uploaded.
-        syn_file_id = self._synapse_client.findEntityId(sanitized_filename, parent=synapse_parent)
-        local_md5 = self.get_local_file_md5(local_file)
-
-        if syn_file_id:
-
-            synapse_file = self._synapse_client.get(syn_file_id, downloadFile=False)
-            synapse_file_md5 = synapse_file._file_handle['contentMd5']
-
-            if local_md5 == synapse_file_md5:
-                logging.info('[File is CURRENT] {0} -> {1}'.format(local_file, full_synapse_path))
+            if os.path.getsize(local_file) < 1:
+                logging.info('Skipping Empty File: {0}'.format(local_file))
                 self.add_processed_path(local_file)
                 return synapse_file
+
+            filename = os.path.basename(local_file)
+
+            sanitized_filename = self.sanitize_name(filename)
+            if sanitized_filename != filename:
+                logging.info('Sanitizing file: {0} -> {1}'.format(filename, sanitized_filename))
+
+            full_synapse_path = self.get_synapse_path(sanitized_filename, synapse_parent)
+            self.add_full_synapse_path(full_synapse_path, local_file)
+
+            # Check if the file has already been uploaded and has not changed since being uploaded.
+            syn_file_id = self._synapse_client.findEntityId(sanitized_filename, parent=synapse_parent)
+            local_md5 = self.get_local_file_md5(local_file)
+
+            if syn_file_id:
+
+                synapse_file = self._synapse_client.get(syn_file_id, downloadFile=False)
+                synapse_file_md5 = synapse_file._file_handle['contentMd5']
+
+                if local_md5 == synapse_file_md5:
+                    logging.info('[File is CURRENT] {0} -> {1}'.format(local_file, full_synapse_path))
+                    self.add_processed_path(local_file)
+                    return synapse_file
+                else:
+                    logging.info('[File has CHANGES] {0} -> {1}'.format(local_file, full_synapse_path))
+                    synapse_file = None
+
+            max_attempts = 5
+            attempt_number = 0
+            exception = None
+
+            while attempt_number < max_attempts and not synapse_file:
+                try:
+                    attempt_number += 1
+                    exception = None
+                    synapse_file = self._synapse_client.store(
+                        File(path=local_file, name=sanitized_filename, parent=synapse_parent), forceVersion=False)
+                except Exception as ex:
+                    exception = ex
+                    self.log_error('[File ERROR] {0} -> {1} : {2}'.format(local_file, full_synapse_path, str(ex)))
+                    if attempt_number < max_attempts:
+                        sleep_time = random.randint(1, 5)
+                        logging.info(
+                            '[File RETRY in {0}s] {1} -> {2}'.format(sleep_time, local_file, full_synapse_path))
+                        time.sleep(sleep_time)
+
+            if exception:
+                self.log_error('[File FAILED] {0} -> {1} : {2}'.format(local_file, full_synapse_path, str(exception)))
             else:
-                logging.info('[File has CHANGES] {0} -> {1}'.format(local_file, full_synapse_path))
-                synapse_file = None
+                synapse_file_md5 = synapse_file._file_handle['contentMd5']
+                if local_md5 != synapse_file_md5:
+                    self.log_error('Local MD5 does not match remote MD5 for: {0}'.format(local_file))
 
-        max_attempts = 5
-        attempt_number = 0
-        exception = None
-
-        while attempt_number < max_attempts and not synapse_file:
-            try:
-                attempt_number += 1
-                exception = None
-                synapse_file = self._synapse_client.store(
-                    File(path=local_file, name=sanitized_filename, parent=synapse_parent), forceVersion=False)
-            except Exception as ex:
-                exception = ex
-                self.log_error('[File ERROR] {0} -> {1} : {2}'.format(local_file, full_synapse_path, str(ex)))
-                if attempt_number < max_attempts:
-                    sleep_time = random.randint(1, 5)
-                    logging.info('[File RETRY in {0}s] {1} -> {2}'.format(sleep_time, local_file, full_synapse_path))
-                    time.sleep(sleep_time)
-
-        if exception:
-            self.log_error('[File FAILED] {0} -> {1} : {2}'.format(local_file, full_synapse_path, str(exception)))
-        else:
-            synapse_file_md5 = synapse_file._file_handle['contentMd5']
-            if local_md5 != synapse_file_md5:
-                self.log_error('Local MD5 does not match remote MD5 for: {0}'.format(local_file))
-
-            self.add_processed_path(local_file)
-            logging.info('[File UPLOADED] {0} -> {1}'.format(local_file, full_synapse_path))
+                self.add_processed_path(local_file)
+                logging.info('[File UPLOADED] {0} -> {1}'.format(local_file, full_synapse_path))
+        except Exception as ex:
+            self.log_error('Error uploading file: {0}, {1}'.format(local_file, ex))
 
         return synapse_file
 
@@ -515,7 +543,7 @@ class GhapMigrator:
     VALID_FILENAME_CHARS = frozenset("-_.() %s%s" % (string.ascii_letters, string.digits))
 
     def sanitize_name(self, name):
-        cleaned_filename = unicodedata.normalize('NFKD', u'{0}'.format(name)).encode('ASCII', 'ignore')
+        cleaned_filename = unicodedata.normalize('NFKD', u'{0}'.format(name.decode('utf-8'))).encode('ASCII', 'ignore')
         return ''.join(c for c in cleaned_filename if c in self.VALID_FILENAME_CHARS)
 
 
