@@ -22,7 +22,6 @@ optional arguments:
                         The Team ID to add to each Project.
   -s STORAGE_LOCATION_ID, --storage-location-id STORAGE_LOCATION_ID
                         The Storage location ID for projects that are created.
-  -m, --skip-md5        Skip md5 checks.
   -l LOG_LEVEL, --log-level LOG_LEVEL
                         Set the logging level.
 ```

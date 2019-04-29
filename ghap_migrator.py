@@ -36,7 +36,7 @@ from io import StringIO
 class GhapMigrator:
 
     def __init__(self, csv_filename, username=None, password=None, admin_team_id=None, storage_location_id=None,
-                 skip_md5=False, max_threads=None, work_dir=None):
+                 max_threads=None, work_dir=None):
         self._csv_filename = csv_filename
         self._username = username
         self._password = password
@@ -44,7 +44,6 @@ class GhapMigrator:
         self._admin_team = None
         self._storage_location_id = storage_location_id
         self._storage_location = None
-        self._skip_md5 = skip_md5
         self._work_dir = None
 
         if work_dir is None:
@@ -56,6 +55,10 @@ class GhapMigrator:
         self._script_user = None
         self._synapse_parents = {}
         self._git_to_syn_mappings = []
+        self._stats = {
+            'found': [],
+            'processed': []
+        }
         self._errors = []
         self._thread_lock = threading.Lock()
         self._max_threads = max_threads
@@ -66,17 +69,31 @@ class GhapMigrator:
         self._errors.append(msg)
         logging.error(msg)
 
+    def add_processed_path(self, path):
+        with self._thread_lock:
+            self._stats['processed'].append(path)
+
+    def check_git_lfs(self):
+        """
+        # Warn if git lfs is not installed.
+        """
+        try:
+            sh.git('lfs')
+        except sh.ErrorReturnCode as ex:
+            logging.warn('!' * 80)
+            logging.warn('GIT LFS not installed.')
+            logging.warn('!' * 80)
+
     def start(self):
         self._start_time = time.time()
         if not os.path.exists(self._work_dir):
             os.makedirs(self._work_dir)
 
+        self.check_git_lfs()
+
         logging.info("Started at: {0}".format(datetime.datetime.now()))
         logging.info('CSV File: {0}'.format(self._csv_filename))
         logging.info('Temp Directory: {0}'.format(self._work_dir))
-
-        if self._skip_md5:
-            logging.info('Skipping MD5 Checks')
 
         self.synapse_login()
         self._script_user = self._synapse_client.getUserProfile()
@@ -97,8 +114,14 @@ class GhapMigrator:
 
         self.process_csv()
 
+        logging.info('#' * 80)
+
         run_duration = datetime.timedelta(seconds=(time.time() - self._start_time))
         logging.info("Ended at: {0}, total duration: {1}".format(datetime.datetime.now(), run_duration))
+
+        for path in self._stats['found']:
+            if path not in self._stats['processed']:
+                self._errors.append('Path found but not processed: {0}'.format(path))
 
         if len(self._git_to_syn_mappings) > 0:
             logging.info('Synapse Projects:')
@@ -153,6 +176,7 @@ class GhapMigrator:
                 self.migrate(git_url, git_folder, synapse_project_id, synapse_path)
 
     def migrate(self, git_url, git_folder, synapse_project_id, synapse_path):
+        logging.info('=' * 80)
         logging.info('Processing {0}'.format(git_url))
         if git_folder:
             logging.info('  - Folder: {0}'.format(git_folder))
@@ -253,6 +277,8 @@ class GhapMigrator:
         parent = synapse_parent
 
         dirs, files = self.get_dirs_and_files(local_path)
+        with self._thread_lock:
+            self._stats['found'] += [dir.path for dir in dirs] + [file.path for file in files]
 
         # Upload the files
         for file_entry in files:
@@ -360,6 +386,7 @@ class GhapMigrator:
         if syn_folder_id:
             synapse_folder = self._synapse_client.get(syn_folder_id, downloadFile=False)
             self.set_synapse_parent(synapse_folder)
+            self.add_processed_path(path)
             logging.info('[Folder EXISTS]: {0} -> {1}'.format(path, full_synapse_path))
         else:
             max_attempts = 5
@@ -383,7 +410,8 @@ class GhapMigrator:
             if exception:
                 self.log_error('[Folder FAILED] {0} -> {1} : {2}'.format(path, full_synapse_path, str(exception)))
             else:
-                logging.info('[Folder] {0} -> {1}'.format(path, full_synapse_path))
+                self.add_processed_path(path)
+                logging.info('[Folder CREATED] {0} -> {1}'.format(path, full_synapse_path))
                 self.set_synapse_parent(synapse_folder)
 
         return synapse_folder
@@ -397,6 +425,7 @@ class GhapMigrator:
 
         if os.path.getsize(local_file) < 1:
             logging.info('Skipping Empty File: {0}'.format(local_file))
+            self.add_processed_path(local_file)
             return synapse_file
 
         filename = os.path.basename(local_file)
@@ -407,22 +436,22 @@ class GhapMigrator:
 
         full_synapse_path = self.get_synapse_path(sanitized_filename, synapse_parent)
 
-        if not self._skip_md5:
-            # Check if the file has already been uploaded and has not changed since being uploaded.
-            syn_file_id = self._synapse_client.findEntityId(sanitized_filename, parent=synapse_parent)
+        # Check if the file has already been uploaded and has not changed since being uploaded.
+        syn_file_id = self._synapse_client.findEntityId(sanitized_filename, parent=synapse_parent)
+        local_md5 = self.get_local_file_md5(local_file)
 
-            if syn_file_id:
-                synapse_file = self._synapse_client.get(syn_file_id, downloadFile=False)
+        if syn_file_id:
 
-                synapse_file_md5 = synapse_file._file_handle['contentMd5']
-                local_md5 = self.get_local_file_md5(local_file)
+            synapse_file = self._synapse_client.get(syn_file_id, downloadFile=False)
+            synapse_file_md5 = synapse_file._file_handle['contentMd5']
 
-                if local_md5 == synapse_file_md5:
-                    logging.info('[File is CURRENT] {0} -> {1}'.format(local_file, full_synapse_path))
-                    return synapse_file
-                else:
-                    logging.info('[File has CHANGES] {0} -> {1}'.format(local_file, full_synapse_path))
-                    synapse_file = None
+            if local_md5 == synapse_file_md5:
+                logging.info('[File is CURRENT] {0} -> {1}'.format(local_file, full_synapse_path))
+                self.add_processed_path(local_file)
+                return synapse_file
+            else:
+                logging.info('[File has CHANGES] {0} -> {1}'.format(local_file, full_synapse_path))
+                synapse_file = None
 
         max_attempts = 5
         attempt_number = 0
@@ -445,7 +474,12 @@ class GhapMigrator:
         if exception:
             self.log_error('[File FAILED] {0} -> {1} : {2}'.format(local_file, full_synapse_path, str(exception)))
         else:
-            logging.info('[File] {0} -> {1}'.format(local_file, full_synapse_path))
+            synapse_file_md5 = synapse_file._file_handle['contentMd5']
+            if local_md5 == synapse_file_md5:
+                self.log_error('Local MD5 does not match remote MD5 for: {0}'.format(local_file))
+
+            self.add_processed_path(local_file)
+            logging.info('[File UPLOADED] {0} -> {1}'.format(local_file, full_synapse_path))
 
         return synapse_file
 
@@ -512,8 +546,6 @@ def main():
                             help='The Team ID to add to each Project.', default=None)
         parser.add_argument('-s', '--storage-location-id',
                             help='The Storage location ID for projects that are created.', default=None)
-        parser.add_argument('-m', '--skip-md5', help='Skip md5 checks.',
-                            default=False, action='store_true')
         parser.add_argument('-t', '--threads',
                             help='Set the maximum number of threads to run.', type=int, default=None)
         parser.add_argument('-w', '--work-dir', help='The directory to git pull repos into.', default=None)
@@ -552,13 +584,11 @@ def main():
             password=args.password,
             admin_team_id=args.admin_team_id,
             storage_location_id=args.storage_location_id,
-            skip_md5=args.skip_md5,
             max_threads=args.threads,
             work_dir=args.work_dir
         ).start()
     except Exception:
         logging.exception('Unhandled exception.')
-
 
 
 if __name__ == "__main__":
