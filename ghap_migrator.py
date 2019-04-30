@@ -71,7 +71,9 @@ class GhapMigrator:
         Logs the error message and adds it to the errors list.
         """
         with self._thread_lock:
-            self._errors.append(msg)
+            # Do not add duplicate errors.
+            if msg not in self._errors:
+                self._errors.append(msg)
             logging.error(msg)
 
     def add_processed_path(self, path):
