@@ -403,7 +403,6 @@ class GhapMigrator:
             logging.info('Sanitizing folder name: {0} -> {1}'.format(folder_name, sanitized_folder_name))
 
         full_synapse_path = self.get_synapse_path(sanitized_folder_name, synapse_parent)
-        self.add_full_synapse_path(full_synapse_path, path)
 
         syn_folder_id = self._synapse_client.findEntityId(sanitized_folder_name, parent=synapse_parent)
 
