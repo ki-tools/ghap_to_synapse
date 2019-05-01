@@ -27,7 +27,6 @@ import string
 import unicodedata
 import concurrent.futures
 import threading
-from scandir import scandir
 import synapseclient
 from synapseclient import Project, Folder, File
 from io import StringIO
@@ -271,7 +270,7 @@ class GhapMigrator:
         dirs = []
         files = []
 
-        for entry in scandir(local_path):
+        for entry in os.scandir(local_path):
             if entry.is_dir(follow_symlinks=False):
                 # Do not include .git
                 if os.path.basename(entry.path) == '.git':
@@ -544,7 +543,7 @@ class GhapMigrator:
     VALID_FILENAME_CHARS = frozenset("-_.() %s%s" % (string.ascii_letters, string.digits))
 
     def sanitize_name(self, name):
-        cleaned_filename = unicodedata.normalize('NFKD', u'{0}'.format(name.decode('utf-8'))).encode('ASCII', 'ignore')
+        cleaned_filename = unicodedata.normalize('NFKD', u'{0}'.format(name)).encode('ASCII', 'ignore').decode()
         return ''.join(c for c in cleaned_filename if c in self.VALID_FILENAME_CHARS)
 
 
