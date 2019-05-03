@@ -150,6 +150,7 @@ class GhapMigrator:
                 logging.info(' - {0}'.format(line))
 
         if len(self._errors) > 0:
+            logging.info('!' * 80)
             logging.info('Completed with Errors:')
             for line in self._errors:
                 logging.error(' - {0}'.format(line))
@@ -399,13 +400,15 @@ class GhapMigrator:
 
         folder_name = os.path.basename(path)
 
-        sanitized_folder_name = self.sanitize_name(folder_name)
-        if sanitized_folder_name != folder_name:
-            logging.info('Sanitizing folder name: {0} -> {1}'.format(folder_name, sanitized_folder_name))
+        bad_name_chars = self.get_invalid_synapse_name_chars(folder_name)
+        if bad_name_chars:
+            self.log_error(
+                'Folder name: "{0}" contains invalid characters: "{1}"'.format(folder_name, ''.join(bad_name_chars)))
+            return synapse_folder
 
-        full_synapse_path = self.get_synapse_path(sanitized_folder_name, synapse_parent)
+        full_synapse_path = self.get_synapse_path(folder_name, synapse_parent)
 
-        syn_folder_id = self._synapse_client.findEntityId(sanitized_folder_name, parent=synapse_parent)
+        syn_folder_id = self._synapse_client.findEntityId(folder_name, parent=synapse_parent)
 
         if syn_folder_id:
             synapse_folder = self._synapse_client.get(syn_folder_id, downloadFile=False)
@@ -422,7 +425,7 @@ class GhapMigrator:
                     attempt_number += 1
                     exception = None
                     synapse_folder = self._synapse_client.store(
-                        Folder(name=sanitized_folder_name, parent=synapse_parent), forceVersion=False)
+                        Folder(name=folder_name, parent=synapse_parent), forceVersion=False)
                 except Exception as ex:
                     exception = ex
                     self.log_error('[Folder ERROR] {0} -> {1} : {2}'.format(path, full_synapse_path, str(ex)))
@@ -454,15 +457,17 @@ class GhapMigrator:
 
             filename = os.path.basename(local_file)
 
-            sanitized_filename = self.sanitize_name(filename)
-            if sanitized_filename != filename:
-                logging.info('Sanitizing file: {0} -> {1}'.format(filename, sanitized_filename))
+            bad_name_chars = self.get_invalid_synapse_name_chars(filename)
+            if bad_name_chars:
+                self.log_error(
+                    'File name: "{0}" contains invalid characters: "{1}"'.format(filename, ''.join(bad_name_chars)))
+                return synapse_file
 
-            full_synapse_path = self.get_synapse_path(sanitized_filename, synapse_parent)
+            full_synapse_path = self.get_synapse_path(filename, synapse_parent)
             self.add_full_synapse_path(full_synapse_path, local_file)
 
             # Check if the file has already been uploaded and has not changed since being uploaded.
-            syn_file_id = self._synapse_client.findEntityId(sanitized_filename, parent=synapse_parent)
+            syn_file_id = self._synapse_client.findEntityId(filename, parent=synapse_parent)
             local_md5 = self.get_local_file_md5(local_file)
 
             if syn_file_id:
@@ -487,7 +492,7 @@ class GhapMigrator:
                     attempt_number += 1
                     exception = None
                     synapse_file = self._synapse_client.store(
-                        File(path=local_file, name=sanitized_filename, parent=synapse_parent), forceVersion=False)
+                        File(path=local_file, name=filename, parent=synapse_parent), forceVersion=False)
                 except Exception as ex:
                     exception = ex
                     self.log_error('[File ERROR] {0} -> {1} : {2}'.format(local_file, full_synapse_path, str(ex)))
@@ -540,11 +545,14 @@ class GhapMigrator:
 
         return os.path.join(*segments)
 
-    VALID_FILENAME_CHARS = frozenset("-_.() %s%s" % (string.ascii_letters, string.digits))
+    VALID_FILENAME_CHARS = frozenset("-_.()+ %s%s" % (string.ascii_letters, string.digits))
 
-    def sanitize_name(self, name):
-        cleaned_filename = unicodedata.normalize('NFKD', u'{0}'.format(name)).encode('ASCII', 'ignore').decode()
-        return ''.join(c for c in cleaned_filename if c in self.VALID_FILENAME_CHARS)
+    def get_invalid_synapse_name_chars(self, name):
+        """
+        Returns any invalid characters (for Synapse) from a string.
+        """
+        bad_chars = [c for c in name if c not in self.VALID_FILENAME_CHARS]
+        return bad_chars
 
 
 class LogFilter(logging.Filter):
