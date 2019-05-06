@@ -403,7 +403,7 @@ class GhapMigrator:
         bad_name_chars = self.get_invalid_synapse_name_chars(folder_name)
         if bad_name_chars:
             self.log_error(
-                'Folder name: "{0}" contains invalid characters: "{1}"'.format(folder_name, ''.join(bad_name_chars)))
+                'Folder name: "{0}" contains invalid characters: "{1}"'.format(path, ''.join(bad_name_chars)))
             return synapse_folder
 
         full_synapse_path = self.get_synapse_path(folder_name, synapse_parent)
@@ -460,7 +460,7 @@ class GhapMigrator:
             bad_name_chars = self.get_invalid_synapse_name_chars(filename)
             if bad_name_chars:
                 self.log_error(
-                    'File name: "{0}" contains invalid characters: "{1}"'.format(filename, ''.join(bad_name_chars)))
+                    'File name: "{0}" contains invalid characters: "{1}"'.format(local_file, ''.join(bad_name_chars)))
                 return synapse_file
 
             full_synapse_path = self.get_synapse_path(filename, synapse_parent)
