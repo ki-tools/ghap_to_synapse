@@ -545,7 +545,7 @@ class GhapMigrator:
 
         return os.path.join(*segments)
 
-    VALID_FILENAME_CHARS = frozenset("-_.()+ %s%s" % (string.ascii_letters, string.digits))
+    VALID_FILENAME_CHARS = frozenset("-_.() %s%s" % (string.ascii_letters, string.digits))
 
     def get_invalid_synapse_name_chars(self, name):
         """
