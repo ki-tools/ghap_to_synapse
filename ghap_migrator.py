@@ -35,7 +35,7 @@ from io import StringIO
 class GhapMigrator:
 
     def __init__(self, csv_filename, username=None, password=None, admin_team_id=None, storage_location_id=None,
-                 max_threads=None, work_dir=None):
+                 max_threads=None, work_dir=None, check_names=False):
         self._csv_filename = csv_filename
         self._username = username
         self._password = password
@@ -44,6 +44,7 @@ class GhapMigrator:
         self._storage_location_id = storage_location_id
         self._storage_location = None
         self._work_dir = None
+        self._check_names = check_names
 
         if work_dir is None:
             self._work_dir = os.path.join(os.path.expanduser('~'), 'tmp', 'ghap')
@@ -116,22 +117,23 @@ class GhapMigrator:
         logging.info('CSV File: {0}'.format(self._csv_filename))
         logging.info('Temp Directory: {0}'.format(self._work_dir))
 
-        self.synapse_login()
-        self._script_user = self._synapse_client.getUserProfile()
+        if not self._check_names:
+            self.synapse_login()
+            self._script_user = self._synapse_client.getUserProfile()
 
-        if self._admin_team_id and self._admin_team_id.strip() != '':
-            logging.info('Loading Admin Team ID: {0}'.format(self._admin_team_id))
-            self._admin_team = self._synapse_client.getTeam(self._admin_team_id)
-            logging.info('Admin Team Loaded: {0}'.format(self._admin_team.name))
-        else:
-            self._admin_team_id = None
+            if self._admin_team_id and self._admin_team_id.strip() != '':
+                logging.info('Loading Admin Team ID: {0}'.format(self._admin_team_id))
+                self._admin_team = self._synapse_client.getTeam(self._admin_team_id)
+                logging.info('Admin Team Loaded: {0}'.format(self._admin_team.name))
+            else:
+                self._admin_team_id = None
 
-        if self._storage_location_id and self._storage_location_id.strip() != '':
-            logging.info('Loading Storage Location ID: {0}'.format(self._storage_location_id))
-            self._storage_location = self._synapse_client.getMyStorageLocationSetting(self._storage_location_id)
-            logging.info('Storage Location: {0}'.format(self._storage_location['bucket']))
-        else:
-            self._storage_location_id = None
+            if self._storage_location_id and self._storage_location_id.strip() != '':
+                logging.info('Loading Storage Location ID: {0}'.format(self._storage_location_id))
+                self._storage_location = self._synapse_client.getMyStorageLocationSetting(self._storage_location_id)
+                logging.info('Storage Location: {0}'.format(self._storage_location['bucket']))
+            else:
+                self._storage_location_id = None
 
         self.process_csv()
 
@@ -228,7 +230,41 @@ class GhapMigrator:
         if git_exception:
             self.log_error('Error pulling repo: {0} : {1}'.format(git_url, str(git_exception)))
         else:
-            self.push_to_synapse(git_url, repo_name, repo_path, git_folder, synapse_project_id, synapse_path)
+            if self._check_names:
+                self.check_names(repo_path)
+            else:
+                self.push_to_synapse(git_url, repo_name, repo_path, git_folder, synapse_project_id, synapse_path)
+
+    def check_names(self, local_path):
+        dirs, files = self.get_dirs_and_files(local_path)
+
+        for file_entry in files:
+            filename = os.path.basename(file_entry.path)
+
+            bad_filename_chars = self.get_invalid_synapse_filename_chars(filename)
+            if bad_filename_chars:
+                self.log_error('File Name: "{0}" contains invalid characters: "{1}"'.format(file_entry.path, ''.join(
+                    bad_filename_chars)))
+
+            sanitized_name = self.sanitize_entity_name(filename)
+            if sanitized_name != filename:
+                logging.info('Sanitizing File Entity Name: {0} -> {1}'.format(filename, sanitized_name))
+
+            bad_entity_name_chars = self.get_invalid_synapse_entity_chars(sanitized_name)
+            if bad_entity_name_chars:
+                self.log_error('File Entity Name: "{0}" contains invalid characters: "{1}"'.format(file_entry.path,
+                                                                                                   ''.join(
+                                                                                                       bad_entity_name_chars)))
+
+        for dir_entry in dirs:
+            folder_name = os.path.basename(dir_entry.path)
+
+            bad_entity_name_chars = self.get_invalid_synapse_entity_chars(folder_name)
+            if bad_entity_name_chars:
+                self.log_error('Folder Entity Name: "{0}" contains invalid characters: "{1}"'.format(dir_entry.path,
+                                                                                                     ''.join(
+                                                                                                         bad_entity_name_chars)))
+            self.check_names(dir_entry.path)
 
     def push_to_synapse(self, git_url, repo_name, repo_path, git_folder, synapse_project_id, synapse_path):
         project = None
@@ -402,10 +438,11 @@ class GhapMigrator:
 
         folder_name = os.path.basename(path)
 
-        bad_name_chars = self.get_invalid_synapse_name_chars(folder_name)
-        if bad_name_chars:
+        bad_entity_name_chars = self.get_invalid_synapse_entity_chars(folder_name)
+        if bad_entity_name_chars:
             self.log_error(
-                'Folder name: "{0}" contains invalid characters: "{1}"'.format(path, ''.join(bad_name_chars)))
+                'Folder Entity Name: "{0}" contains invalid characters: "{1}"'.format(path,
+                                                                                      ''.join(bad_entity_name_chars)))
             return synapse_folder
 
         full_synapse_path = self.get_synapse_path(folder_name, synapse_parent)
@@ -459,17 +496,27 @@ class GhapMigrator:
 
             filename = os.path.basename(local_file)
 
-            bad_name_chars = self.get_invalid_synapse_name_chars(filename)
-            if bad_name_chars:
-                self.log_error(
-                    'File name: "{0}" contains invalid characters: "{1}"'.format(local_file, ''.join(bad_name_chars)))
+            bad_filename_chars = self.get_invalid_synapse_filename_chars(filename)
+            if bad_filename_chars:
+                self.log_error('File Name: "{0}" contains invalid characters: "{1}"'.format(local_file, ''.join(
+                    bad_filename_chars)))
                 return synapse_file
 
-            full_synapse_path = self.get_synapse_path(filename, synapse_parent)
+            sanitized_name = self.sanitize_entity_name(filename)
+            if sanitized_name != filename:
+                logging.info('Sanitizing File Entity Name: {0} -> {1}'.format(filename, sanitized_name))
+
+            bad_entity_name_chars = self.get_invalid_synapse_entity_chars(sanitized_name)
+            if bad_entity_name_chars:
+                self.log_error('File Entity Name: "{0}" contains invalid characters: "{1}"'.format(local_file, ''.join(
+                    bad_entity_name_chars)))
+                return synapse_file
+
+            full_synapse_path = self.get_synapse_path(sanitized_name, synapse_parent)
             self.add_full_synapse_path(full_synapse_path, local_file)
 
             # Check if the file has already been uploaded and has not changed since being uploaded.
-            syn_file_id = self._synapse_client.findEntityId(filename, parent=synapse_parent)
+            syn_file_id = self._synapse_client.findEntityId(sanitized_name, parent=synapse_parent)
             local_md5 = self.get_local_file_md5(local_file)
 
             if syn_file_id:
@@ -494,7 +541,7 @@ class GhapMigrator:
                     attempt_number += 1
                     exception = None
                     synapse_file = self._synapse_client.store(
-                        File(path=local_file, name=filename, parent=synapse_parent), forceVersion=False)
+                        File(path=local_file, name=sanitized_name, parent=synapse_parent), forceVersion=False)
                 except Exception as ex:
                     exception = ex
                     self.log_error('[File ERROR] {0} -> {1} : {2}'.format(local_file, full_synapse_path, str(ex)))
@@ -547,14 +594,34 @@ class GhapMigrator:
 
         return os.path.join(*segments)
 
-    VALID_FILENAME_CHARS = frozenset("-_.() %s%s" % (string.ascii_letters, string.digits))
+    # NOTE: plus signs (+) should be included here but there is a bug in Synapse that prevents them.
+    VALID_FILENAME_CHARS = frozenset("-_.()&$, %s%s" % (string.ascii_letters, string.digits))
 
-    def get_invalid_synapse_name_chars(self, name):
+    def get_invalid_synapse_filename_chars(self, name):
         """
-        Returns any invalid characters (for Synapse) from a string.
+        Returns any invalid characters (for Synapse filenames) from a string.
         """
         bad_chars = [c for c in name if c not in self.VALID_FILENAME_CHARS]
         return bad_chars
+
+    VALID_ENTITY_NAME_CHARS = frozenset("-_.+(), %s%s" % (string.ascii_letters, string.digits))
+
+    # Replacement characters for entity names.
+    ENTITY_NAME_CHAR_MAP = {
+        '&': '_amp_',
+        '$': '_dol_'
+    }
+
+    def get_invalid_synapse_entity_chars(self, name):
+        """
+        Returns any invalid characters (for Synapse entity) from a string.
+        """
+        bad_chars = [c for c in name if c not in self.VALID_ENTITY_NAME_CHARS]
+        return bad_chars
+
+    def sanitize_entity_name(self, name):
+        return ''.join(
+            c if c in self.VALID_ENTITY_NAME_CHARS else self.ENTITY_NAME_CHAR_MAP.get(c, '_-_') for c in name)
 
 
 class LogFilter(logging.Filter):
@@ -589,6 +656,9 @@ def main():
         parser.add_argument('-w', '--work-dir', help='The directory to git pull repos into.', default=None)
         parser.add_argument('-l', '--log-level',
                             help='Set the logging level.', default='INFO')
+        parser.add_argument('-cn', '--check-names',
+                            help='Checks the local folder and files names for invalud Synapse characters',
+                            default=False, action='store_true')
 
         args = parser.parse_args()
 
@@ -623,7 +693,8 @@ def main():
             admin_team_id=args.admin_team_id,
             storage_location_id=args.storage_location_id,
             max_threads=args.threads,
-            work_dir=args.work_dir
+            work_dir=args.work_dir,
+            check_names=args.check_names
         ).start()
     except Exception:
         logging.exception('Unhandled exception.')
