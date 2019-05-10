@@ -606,8 +606,7 @@ class GhapMigrator:
 
     # Replacement characters for entity names.
     ENTITY_NAME_CHAR_MAP = {
-        '&': '_amp_',
-        '$': '_dol_'
+        '&': 'and'
     }
 
     def get_invalid_synapse_entity_chars(self, name):
@@ -619,7 +618,8 @@ class GhapMigrator:
 
     def sanitize_entity_name(self, name):
         return ''.join(
-            c if c in self.VALID_ENTITY_NAME_CHARS else self.ENTITY_NAME_CHAR_MAP.get(c, '_-_') for c in name)
+            c if c in self.VALID_ENTITY_NAME_CHARS else self.ENTITY_NAME_CHAR_MAP.get(c, '_{0}_'.format(ord(c))) for c
+            in name)
 
 
 class LogFilter(logging.Filter):
