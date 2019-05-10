@@ -237,11 +237,13 @@ class GhapMigrator:
         dirs, files = self.get_dirs_and_files(local_path)
 
         for file_entry in files:
-            self.has_invalid_synapse_filename_chars(file_entry.path)
+            if self.get_invalid_synapse_filename_chars(file_entry.path):
+                continue
+
             self.sanitize_entity_name('File', file_entry.path)
 
         for dir_entry in dirs:
-            self.has_invalid_synapse_entity_chars('Folder', dir_entry.path)
+            self.get_invalid_synapse_entity_chars('Folder', dir_entry.path)
             self.check_names(dir_entry.path)
 
     def push_to_synapse(self, git_url, repo_name, repo_path, git_folder, synapse_project_id, synapse_path):
@@ -416,7 +418,7 @@ class GhapMigrator:
 
         folder_name = os.path.basename(path)
 
-        if self.has_invalid_synapse_entity_chars('Folder', path):
+        if self.get_invalid_synapse_entity_chars('Folder', path):
             return synapse_folder
 
         full_synapse_path = self.get_synapse_path(folder_name, synapse_parent)
@@ -468,7 +470,7 @@ class GhapMigrator:
                 self.add_processed_path(local_file)
                 return synapse_file
 
-            if self.has_invalid_synapse_filename_chars(local_file):
+            if self.get_invalid_synapse_filename_chars(local_file):
                 return synapse_file
 
             sanitized_name = self.sanitize_entity_name('File', local_file)
@@ -558,7 +560,7 @@ class GhapMigrator:
     # NOTE: plus signs (+) should be included here but there is a bug in Synapse that prevents them.
     VALID_FILENAME_CHARS = frozenset("-_.()&$, %s%s" % (string.ascii_letters, string.digits))
 
-    def has_invalid_synapse_filename_chars(self, local_path):
+    def get_invalid_synapse_filename_chars(self, local_path):
         """
         Returns any invalid characters (for Synapse filenames) from a string.
         """
@@ -579,33 +581,35 @@ class GhapMigrator:
         '"': ''
     }
 
-    def has_invalid_synapse_entity_chars(self, entity_type_label, local_path, as_error=True):
+    def get_invalid_synapse_entity_chars(self, entity_type_label, local_path, log_it=True):
         """
         Returns any invalid characters (for Synapse entity) from a string.
         """
         name = os.path.basename(local_path)
         bad_chars = [c for c in name if c not in self.VALID_ENTITY_NAME_CHARS]
 
-        if bad_chars:
-            err = '{0} Entity Name: "{1}" contains invalid characters: {2}'.format(entity_type_label, local_path,
-                                                                                   ''.join(bad_chars))
-
-            if as_error:
-                self.log_error(err)
-            else:
-                logging.info(err)
+        if bad_chars and log_it:
+            self.log_error(
+                '{0} Entity Name: "{1}" contains invalid characters: {2}'.format(entity_type_label, local_path,
+                                                                                 ''.join(bad_chars)))
 
         return bad_chars
 
     def sanitize_entity_name(self, entity_type_label, local_path):
         name = os.path.basename(local_path)
+
+        cleaned_filename = unicodedata.normalize('NFKD', u'{0}'.format(name)).encode('ASCII', 'ignore').decode()
+
         sanitized_name = ''.join(
             c if c in self.VALID_ENTITY_NAME_CHARS else self.ENTITY_NAME_CHAR_MAP.get(c, '_{0}_'.format(ord(c))) for c
-            in name)
+            in cleaned_filename)
 
         if sanitized_name != name:
-            self.has_invalid_synapse_entity_chars(entity_type_label, name, as_error=False)
-            logging.info('  Sanitizing {0} Entity Name: {1} -> {2}'.format(entity_type_label, name, sanitized_name))
+            bad_chars = self.get_invalid_synapse_entity_chars(entity_type_label, name, log_it=False)
+            logging.info(
+                'Sanitizing {0} Entity Name: {1} -> {2} : invalid characters: {3}'.format(entity_type_label, name,
+                                                                                          sanitized_name,
+                                                                                          ''.join(bad_chars)))
 
         return sanitized_name
 
