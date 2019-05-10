@@ -237,31 +237,11 @@ class GhapMigrator:
         dirs, files = self.get_dirs_and_files(local_path)
 
         for file_entry in files:
-            filename = os.path.basename(file_entry.path)
-
-            bad_filename_chars = self.get_invalid_synapse_filename_chars(filename)
-            if bad_filename_chars:
-                self.log_error('File Name: "{0}" contains invalid characters: "{1}"'.format(file_entry.path, ''.join(
-                    bad_filename_chars)))
-
-            sanitized_name = self.sanitize_entity_name(filename)
-            if sanitized_name != filename:
-                logging.info('Sanitizing File Entity Name: {0} -> {1}'.format(filename, sanitized_name))
-
-            bad_entity_name_chars = self.get_invalid_synapse_entity_chars(sanitized_name)
-            if bad_entity_name_chars:
-                self.log_error('File Entity Name: "{0}" contains invalid characters: "{1}"'.format(file_entry.path,
-                                                                                                   ''.join(
-                                                                                                       bad_entity_name_chars)))
+            self.has_invalid_synapse_filename_chars(file_entry.path)
+            self.sanitize_entity_name('File', file_entry.path)
 
         for dir_entry in dirs:
-            folder_name = os.path.basename(dir_entry.path)
-
-            bad_entity_name_chars = self.get_invalid_synapse_entity_chars(folder_name)
-            if bad_entity_name_chars:
-                self.log_error('Folder Entity Name: "{0}" contains invalid characters: "{1}"'.format(dir_entry.path,
-                                                                                                     ''.join(
-                                                                                                         bad_entity_name_chars)))
+            self.has_invalid_synapse_entity_chars('Folder', dir_entry.path)
             self.check_names(dir_entry.path)
 
     def push_to_synapse(self, git_url, repo_name, repo_path, git_folder, synapse_project_id, synapse_path):
@@ -436,11 +416,7 @@ class GhapMigrator:
 
         folder_name = os.path.basename(path)
 
-        bad_entity_name_chars = self.get_invalid_synapse_entity_chars(folder_name)
-        if bad_entity_name_chars:
-            self.log_error(
-                'Folder Entity Name: "{0}" contains invalid characters: "{1}"'.format(path,
-                                                                                      ''.join(bad_entity_name_chars)))
+        if self.has_invalid_synapse_entity_chars('Folder', path):
             return synapse_folder
 
         full_synapse_path = self.get_synapse_path(folder_name, synapse_parent)
@@ -492,23 +468,10 @@ class GhapMigrator:
                 self.add_processed_path(local_file)
                 return synapse_file
 
-            filename = os.path.basename(local_file)
-
-            bad_filename_chars = self.get_invalid_synapse_filename_chars(filename)
-            if bad_filename_chars:
-                self.log_error('File Name: "{0}" contains invalid characters: "{1}"'.format(local_file, ''.join(
-                    bad_filename_chars)))
+            if self.has_invalid_synapse_filename_chars(local_file):
                 return synapse_file
 
-            sanitized_name = self.sanitize_entity_name(filename)
-            if sanitized_name != filename:
-                logging.info('Sanitizing File Entity Name: {0} -> {1}'.format(filename, sanitized_name))
-
-            bad_entity_name_chars = self.get_invalid_synapse_entity_chars(sanitized_name)
-            if bad_entity_name_chars:
-                self.log_error('File Entity Name: "{0}" contains invalid characters: "{1}"'.format(local_file, ''.join(
-                    bad_entity_name_chars)))
-                return synapse_file
+            sanitized_name = self.sanitize_entity_name('File', local_file)
 
             full_synapse_path = self.get_synapse_path(sanitized_name, synapse_parent)
             self.add_full_synapse_path(full_synapse_path, local_file)
@@ -595,31 +558,56 @@ class GhapMigrator:
     # NOTE: plus signs (+) should be included here but there is a bug in Synapse that prevents them.
     VALID_FILENAME_CHARS = frozenset("-_.()&$, %s%s" % (string.ascii_letters, string.digits))
 
-    def get_invalid_synapse_filename_chars(self, name):
+    def has_invalid_synapse_filename_chars(self, local_path):
         """
         Returns any invalid characters (for Synapse filenames) from a string.
         """
-        bad_chars = [c for c in name if c not in self.VALID_FILENAME_CHARS]
+        filename = os.path.basename(local_path)
+        bad_chars = [c for c in filename if c not in self.VALID_FILENAME_CHARS]
+
+        if bad_chars:
+            self.log_error('File Name: "{0}" contains invalid characters: {1}'.format(local_path, ''.join(bad_chars)))
+
         return bad_chars
 
     VALID_ENTITY_NAME_CHARS = frozenset("-_.+(), %s%s" % (string.ascii_letters, string.digits))
 
     # Replacement characters for entity names.
     ENTITY_NAME_CHAR_MAP = {
-        '&': 'and'
+        '&': 'and',
+        '\'': '',
+        '"': ''
     }
 
-    def get_invalid_synapse_entity_chars(self, name):
+    def has_invalid_synapse_entity_chars(self, entity_type_label, local_path, as_error=True):
         """
         Returns any invalid characters (for Synapse entity) from a string.
         """
+        name = os.path.basename(local_path)
         bad_chars = [c for c in name if c not in self.VALID_ENTITY_NAME_CHARS]
+
+        if bad_chars:
+            err = '{0} Entity Name: "{1}" contains invalid characters: {2}'.format(entity_type_label, local_path,
+                                                                                   ''.join(bad_chars))
+
+            if as_error:
+                self.log_error(err)
+            else:
+                logging.info(err)
+
         return bad_chars
 
-    def sanitize_entity_name(self, name):
-        return ''.join(
+    def sanitize_entity_name(self, entity_type_label, local_path):
+        name = os.path.basename(local_path)
+        sanitized_name = ''.join(
             c if c in self.VALID_ENTITY_NAME_CHARS else self.ENTITY_NAME_CHAR_MAP.get(c, '_{0}_'.format(ord(c))) for c
             in name)
+
+        if sanitized_name != name:
+            self.has_invalid_synapse_entity_chars(entity_type_label, name, as_error=False)
+            logging.info('  Sanitizing {0} Entity Name: {1} -> {2}'.format(entity_type_label, name, sanitized_name))
+
+        return sanitized_name
 
 
 class LogFilter(logging.Filter):
