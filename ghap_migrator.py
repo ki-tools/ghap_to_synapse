@@ -212,12 +212,14 @@ class GhapMigrator:
             # Pull
             logging.info('  - Pulling Repo into {0}'.format(repo_path))
             try:
-                sh.git.bake(_cwd=repo_path).pull('--rebase')
+                sh.git.bake(_cwd=repo_path).fetch('origin', 'master')
+                sh.git.bake(_cwd=repo_path).reset('--hard', 'origin/master')
+                sh.git.bake(_cwd=repo_path).pull()
             except Exception as ex:
                 git_exception = ex
         else:
             # Checkout
-            logging.info('  - Checking Out into {0}'.format(repo_path))
+            logging.info('  - Cloning into {0}'.format(repo_path))
             try:
                 sh.git.bake(_cwd=self._work_dir).clone(git_url)
             except Exception as ex:
