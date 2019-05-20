@@ -559,7 +559,7 @@ class GhapMigrator:
 
         return os.path.join(*segments)
 
-    # NOTE: plus signs (+) should be included here but there is a bug in Synapse that prevents them.
+    # NOTE: plus signs (+) should be included here but there is a bug in Synapse that prevents it.
     VALID_FILENAME_CHARS = frozenset("-_.()&$, %s%s" % (string.ascii_letters, string.digits))
 
     def get_invalid_synapse_filename_chars(self, local_path):
@@ -567,18 +567,20 @@ class GhapMigrator:
         Returns any invalid characters (for Synapse filenames) from a string.
         """
         filename = os.path.basename(local_path)
-        bad_chars = [c for c in filename if c not in self.VALID_FILENAME_CHARS]
+        invalid_chars = [c for c in filename if c not in self.VALID_FILENAME_CHARS]
 
-        if bad_chars:
-            self.log_error('File Name: "{0}" contains invalid characters: {1}'.format(local_path, ''.join(bad_chars)))
+        if invalid_chars:
+            self.log_error(
+                'File Name: "{0}" contains invalid characters: {1}'.format(local_path, ''.join(invalid_chars)))
 
-        return bad_chars
+        return invalid_chars
 
     VALID_ENTITY_NAME_CHARS = frozenset("-_.+(), %s%s" % (string.ascii_letters, string.digits))
 
     # Replacement characters for entity names.
     ENTITY_NAME_CHAR_MAP = {
         '&': 'and',
+        '$': '_',
         '\'': '',
         '"': ''
     }
@@ -588,14 +590,14 @@ class GhapMigrator:
         Returns any invalid characters (for Synapse entity) from a string.
         """
         name = os.path.basename(local_path)
-        bad_chars = [c for c in name if c not in self.VALID_ENTITY_NAME_CHARS]
+        invalid_chars = [c for c in name if c not in self.VALID_ENTITY_NAME_CHARS]
 
-        if bad_chars and log_it:
+        if invalid_chars and log_it:
             self.log_error(
                 '{0} Entity Name: "{1}" contains invalid characters: {2}'.format(entity_type_label, local_path,
-                                                                                 ''.join(bad_chars)))
+                                                                                 ''.join(invalid_chars)))
 
-        return bad_chars
+        return invalid_chars
 
     def sanitize_entity_name(self, entity_type_label, local_path):
         name = os.path.basename(local_path)
@@ -607,11 +609,11 @@ class GhapMigrator:
             in cleaned_filename)
 
         if sanitized_name != name:
-            bad_chars = self.get_invalid_synapse_entity_chars(entity_type_label, name, log_it=False)
+            invalid_chars = self.get_invalid_synapse_entity_chars(entity_type_label, name, log_it=False)
             logging.info(
                 'Sanitizing {0} Entity Name: {1} -> {2} : invalid characters: {3}'.format(entity_type_label, name,
                                                                                           sanitized_name,
-                                                                                          ''.join(bad_chars)))
+                                                                                          ''.join(invalid_chars)))
 
         return sanitized_name
 
@@ -649,7 +651,7 @@ def main():
         parser.add_argument('-l', '--log-level',
                             help='Set the logging level.', default='INFO')
         parser.add_argument('-cn', '--check-names',
-                            help='Checks the local folder and files names for invalud Synapse characters',
+                            help='Checks the local folder and files names for invalid Synapse characters',
                             default=False, action='store_true')
 
         args = parser.parse_args()
