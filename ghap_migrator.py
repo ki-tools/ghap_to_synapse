@@ -61,6 +61,7 @@ class GhapMigrator:
         }
         self._full_synapse_paths = []
         self._errors = []
+        self._warnings = []
         self._thread_lock = threading.Lock()
         self._max_threads = max_threads
         self._start_time = None
@@ -75,6 +76,16 @@ class GhapMigrator:
             if msg not in self._errors:
                 self._errors.append(msg)
             logging.error(msg)
+
+    def log_warning(self, msg):
+        """
+        Logs the warning message and adds it to the warnings list.
+        """
+        with self._thread_lock:
+            # Do not add duplicate errors.
+            if msg not in self._warnings:
+                self._warnings.append(msg)
+            logging.warning(msg)
 
     def add_processed_path(self, path):
         """
@@ -102,9 +113,9 @@ class GhapMigrator:
         try:
             sh.git('lfs')
         except sh.ErrorReturnCode as ex:
-            logging.warn('!' * 80)
-            logging.warn('GIT LFS not installed.')
-            logging.warn('!' * 80)
+            self.log_warning('!' * 80)
+            self.log_warning('GIT LFS not installed.')
+            self.log_warning('!' * 80)
 
     def start(self):
         self._start_time = time.time()
@@ -151,11 +162,21 @@ class GhapMigrator:
             for line in self._git_to_syn_mappings:
                 logging.info(' - {0}'.format(line))
 
-        if len(self._errors) > 0:
-            logging.info('!' * 80)
-            logging.info('Completed with Errors:')
-            for line in self._errors:
-                logging.error(' - {0}'.format(line))
+        has_errors = len(self._errors) > 0
+        has_warnings = len(self._warnings) > 0
+
+        if has_errors or has_warnings:
+            if has_warnings:
+                logging.info('*' * 80)
+                logging.info('Completed with Warnings:')
+                for line in self._warnings:
+                    logging.error(' - {0}'.format(line))
+
+            if has_errors:
+                logging.info('!' * 80)
+                logging.info('Completed with Errors:')
+                for line in self._errors:
+                    logging.error(' - {0}'.format(line))
         else:
             logging.info('Completed Successfully.')
 
@@ -610,7 +631,7 @@ class GhapMigrator:
 
         if sanitized_name != name:
             invalid_chars = self.get_invalid_synapse_entity_chars(entity_type_label, name, log_it=False)
-            logging.info(
+            self.log_warning(
                 'Sanitizing {0} Entity Name: {1} -> {2} : invalid characters: {3}'.format(entity_type_label, name,
                                                                                           sanitized_name,
                                                                                           ''.join(invalid_chars)))
