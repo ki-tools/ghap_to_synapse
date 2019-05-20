@@ -632,7 +632,7 @@ class GhapMigrator:
         if sanitized_name != name:
             invalid_chars = self.get_invalid_synapse_entity_chars(entity_type_label, name, log_it=False)
             self.log_warning(
-                'Sanitizing {0} Entity Name: {1} -> {2} : invalid characters: {3}'.format(entity_type_label, name,
+                'Sanitizing {0} Entity Name: {1} -> {2} : invalid characters: {3}'.format(entity_type_label, local_path,
                                                                                           sanitized_name,
                                                                                           ''.join(invalid_chars)))
 
