@@ -349,15 +349,18 @@ class GhapMigrator:
                 self.log_error('Script user does not have WRITE permission to Project: {0}'.format(project_name_or_id))
                 return None
         else:
-            project = self._synapse_client.store(Project(project_name_or_id))
-            logging.info('[Project CREATED] {0}: {1}'.format(project.id, project.name))
-            if self._storage_location_id:
-                logging.info('Setting storage location for project: {0}: {1}'.format(project.id, project.name))
-                self._synapse_client.setStorageLocation(project, self._storage_location_id)
+            try:
+                project = self._synapse_client.store(Project(project_name_or_id))
+                logging.info('[Project CREATED] {0}: {1}'.format(project.id, project.name))
+                if self._storage_location_id:
+                    logging.info('Setting storage location for project: {0}: {1}'.format(project.id, project.name))
+                    self._synapse_client.setStorageLocation(project, self._storage_location_id)
 
-            if self._admin_team:
-                logging.info('Granting admin permissions to team on Project: {0}: {1}'.format(project.id, project.name))
-                self.grant_admin_access(project, self._admin_team.id)
+                if self._admin_team:
+                    logging.info('Granting admin permissions to team on Project: {0}: {1}'.format(project.id, project.name))
+                    self.grant_admin_access(project, self._admin_team.id)
+            except Exception as ex:
+                self.log_error('Error creating project: {0}, {1}'.format(project_name_or_id, ex))
 
         if project:
             self.set_synapse_parent(project)
