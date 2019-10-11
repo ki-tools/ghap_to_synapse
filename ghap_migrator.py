@@ -24,13 +24,12 @@ import datetime
 import random
 import csv
 import string
-import unicodedata
 import concurrent.futures
 import threading
 import synapseclient
 from synapseclient import Project, Folder, File
 from io import StringIO
-
+import urllib.parse as UrlParse
 
 class GhapMigrator:
 
@@ -203,8 +202,9 @@ class GhapMigrator:
         if git_folder:
             logging.info('  - Folder: {0}'.format(git_folder))
 
-        repo_name = git_url.split('/')[-1].replace('.git', '')
-        repo_path = os.path.join(self._work_dir, repo_name)
+        repo_url_path = UrlParse.urlparse(git_url).path.replace('.git', '').lstrip('/')
+        repo_name = repo_url_path.split('/')[-1]
+        repo_path = os.path.join(self._work_dir, repo_url_path)
 
         git_exception = None
 
@@ -221,7 +221,7 @@ class GhapMigrator:
             # Checkout
             logging.info('  - Cloning into {0}'.format(repo_path))
             try:
-                sh.git.bake(_cwd=self._work_dir).clone(git_url)
+                sh.git.bake(_cwd=self._work_dir).clone(git_url, repo_path)
             except Exception as ex:
                 git_exception = ex
 
