@@ -63,6 +63,7 @@ class GhapMigrator:
         self._max_threads = max_threads
         self._start_time = None
         self._end_time = None
+        self._git_lfs_installed = False
 
     def log_error(self, msg):
         """
@@ -99,17 +100,19 @@ class GhapMigrator:
         """
         try:
             sh.git('lfs')
+            return True
         except sh.ErrorReturnCode as ex:
-            logging.warn('!' * 80)
-            logging.warn('GIT LFS not installed.')
-            logging.warn('!' * 80)
+            logging.warning('!' * 80)
+            logging.warning('GIT LFS not installed.')
+            logging.warning('!' * 80)
+        return False
 
     def start(self):
         self._start_time = time.time()
         if not os.path.exists(self._work_dir):
             os.makedirs(self._work_dir)
 
-        self.check_git_lfs()
+        self._git_lfs_installed = self.check_git_lfs()
 
         logging.info("Started at: {0}".format(datetime.datetime.now()))
         logging.info('CSV File: {0}'.format(self._csv_filename))
@@ -208,20 +211,31 @@ class GhapMigrator:
 
         git_exception = None
 
+        # Use 'lfs' for git commands to get around memory constraints when using
+        # the normal 'git clone'/'git pull' commands.
+        # https://github.com/git-lfs/git-lfs/issues/3524
+        lfs = 'lfs' if self._git_lfs_installed else ''
+
         if os.path.exists(repo_path):
             # Pull
             logging.info('  - Pulling Repo into {0}'.format(repo_path))
             try:
                 sh.git.bake(_cwd=repo_path).fetch('origin', 'master')
                 sh.git.bake(_cwd=repo_path).reset('--hard', 'origin/master')
-                sh.git.bake(_cwd=repo_path).pull()
+                if lfs:
+                    sh.git.bake(_cwd=repo_path).lfs('pull')
+                else:
+                    sh.git.bake(_cwd=repo_path).pull()
             except Exception as ex:
                 git_exception = ex
         else:
             # Checkout
             logging.info('  - Cloning into {0}'.format(repo_path))
             try:
-                sh.git.bake(_cwd=self._work_dir).clone(git_url, repo_path)
+                if lfs:
+                    sh.git.bake(_cwd=self._work_dir).lfs('clone', git_url, repo_path)
+                else:
+                    sh.git.bake(_cwd=self._work_dir).clone(git_url, repo_path)
             except Exception as ex:
                 git_exception = ex
 
