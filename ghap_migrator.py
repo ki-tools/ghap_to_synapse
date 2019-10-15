@@ -220,8 +220,6 @@ class GhapMigrator:
             # Pull
             logging.info('  - Pulling Repo into {0}'.format(repo_path))
             try:
-                sh.git.bake(_cwd=repo_path).fetch('origin', 'master')
-                sh.git.bake(_cwd=repo_path).reset('--hard', 'origin/master')
                 if lfs:
                     sh.git.bake(_cwd=repo_path).lfs('pull')
                 else:
