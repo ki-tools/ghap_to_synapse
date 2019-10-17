@@ -237,6 +237,17 @@ class GhapMigrator:
                     sh.git.bake(_cwd=self._work_dir).clone(git_url, repo_path)
             except Exception as ex:
                 git_exception = ex
+                # Try alternate cloning
+                if lfs:
+                    self.log_error('Error pulling repo: {0} : {1}'.format(git_url, str(git_exception)))
+                    logging.info('Trying alternate git clone...')
+                    try:
+                        sh.git.bake(_cwd=self._work_dir).lfs('clone', '--depth', '1', git_url, repo_path)
+                        sh.git.bake(_cwd=repo_path).fetch('--unshallow')
+                        sh.git.bake(_cwd=repo_path).config('remote.origin.fetch', '+refs/heads/*:refs/remotes/origin/*')
+                        sh.git.bake(_cwd=repo_path).fetch('origin')
+                    except Exception as ex:
+                        git_exception = ex
 
         if git_exception:
             self.log_error('Error pulling repo: {0} : {1}'.format(git_url, str(git_exception)))
