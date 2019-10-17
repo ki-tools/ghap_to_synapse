@@ -23,13 +23,14 @@ import time
 import datetime
 import random
 import csv
-import string
 import concurrent.futures
 import threading
 import synapseclient
 from synapseclient import Project, Folder, File
 from io import StringIO
 import urllib.parse as UrlParse
+from utils import Utils
+
 
 class GhapMigrator:
 
@@ -45,9 +46,9 @@ class GhapMigrator:
         self._work_dir = None
 
         if work_dir is None:
-            self._work_dir = os.path.join(os.path.expanduser('~'), 'tmp', 'ghap')
+            self._work_dir = Utils.expand_path(os.path.join('~', 'tmp', 'ghap'))
         else:
-            self._work_dir = os.path.abspath(os.path.expanduser(work_dir))
+            self._work_dir = Utils.expand_path(work_dir)
 
         self._synapse_client = None
         self._script_user = None
@@ -116,7 +117,7 @@ class GhapMigrator:
 
         logging.info("Started at: {0}".format(datetime.datetime.now()))
         logging.info('CSV File: {0}'.format(self._csv_filename))
-        logging.info('Temp Directory: {0}'.format(self._work_dir))
+        logging.info('Work Directory: {0}'.format(self._work_dir))
 
         self.synapse_login()
         self._script_user = self._synapse_client.getUserProfile()
@@ -196,7 +197,7 @@ class GhapMigrator:
                 git_url = row['git_url'].strip()
                 git_folder = row['git_folder'].strip()
                 synapse_project_id = row['synapse_project_id'].strip()
-                synapse_path = row['synapse_path'].replace(' ', '').lstrip(os.sep).rstrip(os.sep)
+                synapse_path = row['synapse_path'].lstrip(os.sep).rstrip(os.sep)
                 self.migrate(git_url, git_folder, synapse_project_id, synapse_path)
 
     def migrate(self, git_url, git_folder, synapse_project_id, synapse_path):
@@ -281,30 +282,6 @@ class GhapMigrator:
         with concurrent.futures.ThreadPoolExecutor(max_workers=self._max_threads) as executor:
             self.upload_folder(executor, start_path, parent)
 
-    def get_dirs_and_files(self, local_path):
-        dirs = []
-        files = []
-
-        for entry in os.scandir(local_path):
-            if entry.is_dir(follow_symlinks=False):
-                # Do not include .git
-                if os.path.basename(entry.path) == '.git':
-                    logging.info('Skipping GIT Directory: {0}'.format(entry.path))
-                    continue
-
-                dirs.append(entry)
-            else:
-                # Skip the *.gitlog files since they will be created during upload.
-                if os.path.basename(entry.path).endswith('.gitlog'):
-                    continue
-
-                files.append(entry)
-
-        dirs.sort(key=lambda f: f.name)
-        files.sort(key=lambda f: f.name)
-
-        return dirs, files
-
     def upload_folder(self, executor, local_path, synapse_parent):
         try:
             if not synapse_parent:
@@ -313,7 +290,7 @@ class GhapMigrator:
 
             parent = synapse_parent
 
-            dirs, files = self.get_dirs_and_files(local_path)
+            dirs, files = Utils.get_dirs_and_files(local_path)
             with self._thread_lock:
                 self._stats['found'] += [dir.path for dir in dirs] + [file.path for file in files]
 
@@ -369,7 +346,8 @@ class GhapMigrator:
                     self._synapse_client.setStorageLocation(project, self._storage_location_id)
 
                 if self._admin_team:
-                    logging.info('Granting admin permissions to team on Project: {0}: {1}'.format(project.id, project.name))
+                    logging.info(
+                        'Granting admin permissions to team on Project: {0}: {1}'.format(project.id, project.name))
                     self.grant_admin_access(project, self._admin_team.id)
             except Exception as ex:
                 self.log_error('Error creating project: {0}, {1}'.format(project_name_or_id, ex))
@@ -417,7 +395,7 @@ class GhapMigrator:
 
         folder_name = os.path.basename(path)
 
-        bad_name_chars = self.get_invalid_synapse_name_chars(folder_name)
+        bad_name_chars = Utils.get_invalid_synapse_name_chars(folder_name)
         if bad_name_chars:
             self.log_error(
                 'Folder name: "{0}" contains invalid characters: "{1}"'.format(path, ''.join(bad_name_chars)))
@@ -474,7 +452,7 @@ class GhapMigrator:
 
             filename = os.path.basename(local_file)
 
-            bad_name_chars = self.get_invalid_synapse_name_chars(filename)
+            bad_name_chars = Utils.get_invalid_synapse_name_chars(filename)
             if bad_name_chars:
                 self.log_error(
                     'File name: "{0}" contains invalid characters: "{1}"'.format(local_file, ''.join(bad_name_chars)))
@@ -561,15 +539,6 @@ class GhapMigrator:
         segments.append(folder_or_filename)
 
         return os.path.join(*segments)
-
-    VALID_FILENAME_CHARS = frozenset("-_.() %s%s" % (string.ascii_letters, string.digits))
-
-    def get_invalid_synapse_name_chars(self, name):
-        """
-        Returns any invalid characters (for Synapse) from a string.
-        """
-        bad_chars = [c for c in name if c not in self.VALID_FILENAME_CHARS]
-        return bad_chars
 
 
 class LogFilter(logging.Filter):
