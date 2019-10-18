@@ -25,6 +25,7 @@ import random
 import csv
 import concurrent.futures
 import threading
+import shutil
 import synapseclient
 from synapseclient import Project, Folder, File
 from io import StringIO
@@ -237,6 +238,9 @@ class GhapMigrator:
                     sh.git.bake(_cwd=self._work_dir).clone(git_url, repo_path)
             except Exception as ex:
                 git_exception = ex
+                if os.path.isdir(repo_path):
+                    shutil.rmtree(repo_path)
+
                 # Try alternate cloning
                 if lfs:
                     self.log_error('Error pulling repo: {0} : {1}'.format(git_url, str(git_exception)))
@@ -248,6 +252,8 @@ class GhapMigrator:
                         sh.git.bake(_cwd=repo_path).fetch('origin')
                     except Exception as ex:
                         git_exception = ex
+                        if os.path.isdir(repo_path):
+                            shutil.rmtree(repo_path)
 
         if git_exception:
             self.log_error('Error pulling repo: {0} : {1}'.format(git_url, str(git_exception)))
