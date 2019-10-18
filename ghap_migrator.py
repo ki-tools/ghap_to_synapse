@@ -59,7 +59,6 @@ class GhapMigrator:
             'found': [],
             'processed': []
         }
-        self._full_synapse_paths = []
         self._errors = []
         self._thread_lock = threading.Lock()
         self._max_threads = max_threads
@@ -84,17 +83,6 @@ class GhapMigrator:
         """
         with self._thread_lock:
             self._stats['processed'].append(path)
-
-    def add_full_synapse_path(self, full_synapse_path, local_path):
-        """
-        Keeps track of every file and folder created or uploaded to Synapse.
-        This is used to make sure sanitized filenames don't collide with other files.
-        """
-        with self._thread_lock:
-            if full_synapse_path in self._full_synapse_paths:
-                raise Exception('Duplicate synapse path found: {0} for: {1}'.format(full_synapse_path, local_path))
-            else:
-                self._full_synapse_paths.append(full_synapse_path)
 
     def check_git_lfs(self):
         """
@@ -476,7 +464,6 @@ class GhapMigrator:
                 return synapse_file
 
             full_synapse_path = self.get_synapse_path(filename, synapse_parent)
-            self.add_full_synapse_path(full_synapse_path, local_file)
 
             # Check if the file has already been uploaded and has not changed since being uploaded.
             syn_file_id = self._synapse_client.findEntityId(filename, parent=synapse_parent)
