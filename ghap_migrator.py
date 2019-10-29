@@ -17,14 +17,16 @@
 import os
 import argparse
 import logging
-import sh
 import time
 import datetime
 import random
+import aiofiles
+import hashlib
 import synapseclient
 from synapseclient import Project, Folder, File
-from io import StringIO
 from utils import Utils
+from aio_manager import AioManager
+from synapse_proxy import SynapseProxy
 
 
 class GhapMigrator:
@@ -45,7 +47,6 @@ class GhapMigrator:
         else:
             self._work_dir = Utils.expand_path(work_dir)
 
-        self._synapse_client = None
         self._script_user = None
         self._synapse_parents = {}
         self._git_to_syn_mappings = []
@@ -84,28 +85,10 @@ class GhapMigrator:
         logging.info('CSV File: {0}'.format(self._csv_filename))
         logging.info('Work Directory: {0}'.format(self._work_dir))
 
-        self._synapse_client, login_error = Utils.synapse_login(self._username, self._password)
-
-        if login_error:
-            self.log_error('Synapse login failed: {0}'.format(login_error))
+        if not SynapseProxy.login(self._username, self._password):
+            self.log_error('Synapse login failed: {0}'.format(SynapseProxy.login_error))
         else:
-            self._script_user = self._synapse_client.getUserProfile()
-
-            if self._admin_team_id and self._admin_team_id.strip() != '':
-                logging.info('Loading Admin Team ID: {0}'.format(self._admin_team_id))
-                self._admin_team = self._synapse_client.getTeam(self._admin_team_id)
-                logging.info('Admin Team Loaded: {0}'.format(self._admin_team.name))
-            else:
-                self._admin_team_id = None
-
-            if self._storage_location_id and self._storage_location_id.strip() != '':
-                logging.info('Loading Storage Location ID: {0}'.format(self._storage_location_id))
-                self._storage_location = self._synapse_client.getMyStorageLocationSetting(self._storage_location_id)
-                logging.info('Storage Location: {0}'.format(self._storage_location['bucket']))
-            else:
-                self._storage_location_id = None
-
-            Utils.process_repo_csv(self._csv_filename, self._work_dir, self.push_to_synapse, self.log_error)
+            AioManager.start(self._startAsync)
 
         logging.info('#' * 80)
 
@@ -129,16 +112,35 @@ class GhapMigrator:
         else:
             logging.info('Completed Successfully.')
 
-    def push_to_synapse(self, git_url, repo_name, repo_path, git_folder, synapse_project_id, synapse_path):
+    async def _startAsync(self):
+        self._script_user = SynapseProxy.client().getUserProfile()
+
+        if self._admin_team_id and self._admin_team_id.strip() != '':
+            logging.info('Loading Admin Team ID: {0}'.format(self._admin_team_id))
+            self._admin_team = SynapseProxy.client().getTeam(self._admin_team_id)
+            logging.info('Admin Team Loaded: {0}'.format(self._admin_team.name))
+        else:
+            self._admin_team_id = None
+
+        if self._storage_location_id and self._storage_location_id.strip() != '':
+            logging.info('Loading Storage Location ID: {0}'.format(self._storage_location_id))
+            self._storage_location = SynapseProxy.client().getMyStorageLocationSetting(self._storage_location_id)
+            logging.info('Storage Location: {0}'.format(self._storage_location['bucket']))
+        else:
+            self._storage_location_id = None
+
+        await Utils.process_repo_csv(self._csv_filename, self._work_dir, self.push_to_synapse, self.log_error)
+
+    async def push_to_synapse(self, git_url, repo_name, repo_path, git_folder, synapse_project_id, synapse_path):
         project = None
 
         if synapse_project_id and synapse_project_id != '':
             # Find or create a Folder in the Project to store the repo.
-            project = self.find_or_create_project(synapse_project_id)
+            project = await self.find_or_create_project(synapse_project_id)
         else:
             # Find or Create the Project.
             project_name = Utils.create_project_name(repo_name, git_folder)
-            project = self.find_or_create_project(project_name)
+            project = await self.find_or_create_project(project_name)
 
         if not project:
             self.log_error('Could not get project for {0}.'.format(git_url))
@@ -157,15 +159,15 @@ class GhapMigrator:
             full_path = ''
             for folder in Utils.get_path_parts(synapse_path):
                 full_path = os.path.join(full_path, folder)
-                parent = self.find_or_create_folder(full_path, parent)
+                parent = await self.find_or_create_folder(full_path, parent)
 
         start_path = repo_path
         if git_folder:
             start_path = os.path.join(repo_path, git_folder)
 
-        self.upload_folder(start_path, parent)
+        await self.upload_folder(start_path, parent)
 
-    def upload_folder(self, local_path, synapse_parent):
+    async def upload_folder(self, local_path, synapse_parent):
         try:
             if not synapse_parent:
                 self.log_error('Parent not found, cannot upload folder: {0}'.format(local_path))
@@ -187,26 +189,24 @@ class GhapMigrator:
                 #     '--pretty=commit %H%nDate: %cd%nAuthor: %an%nSubject: %s%nNotes:%N%n', filename, _out=git_log_filename,
                 #     _tty_out=False)
 
-                self.find_or_upload_file(file_entry.path, parent)
-                # executor.submit(self.find_or_upload_file, file_entry.path, parent)
-                # executor.submit(self.find_or_upload_file, git_log_filename, parent)
+                await self.find_or_upload_file(file_entry.path, parent)
 
             # Upload the directories.
             for dir_entry in dirs:
-                syn_dir = self.find_or_create_folder(dir_entry.path, parent)
-                self.upload_folder(dir_entry.path, syn_dir)
+                syn_dir = await self.find_or_create_folder(dir_entry.path, parent)
+                await self.upload_folder(dir_entry.path, syn_dir)
         except Exception as ex:
             self.log_error('Error uploading folder: {0}, {1}'.format(local_path, ex))
 
-    def find_or_create_project(self, project_name_or_id):
+    async def find_or_create_project(self, project_name_or_id):
         project = None
 
         try:
             if project_name_or_id.lower().startswith('syn'):
-                project = self._synapse_client.get(project_name_or_id)
+                project = await SynapseProxy.getAsync(project_name_or_id)
             else:
-                project_id = self._synapse_client.findEntityId(project_name_or_id)
-                project = self._synapse_client.get(project_id)
+                project_id = await SynapseProxy.findEntityIdAsync(project_name_or_id)
+                project = await SynapseProxy.getAsync(project_id)
         except synapseclient.exceptions.SynapseHTTPError as ex:
             if ex.response.status_code >= 400:
                 self.log_error('Script user does not have READ permission to Project: {0}'.format(project_name_or_id))
@@ -222,11 +222,11 @@ class GhapMigrator:
                 return None
         else:
             try:
-                project = self._synapse_client.store(Project(project_name_or_id))
+                project = await SynapseProxy.storeAsync(Project(project_name_or_id))
                 logging.info('[Project CREATED] {0}: {1}'.format(project.id, project.name))
                 if self._storage_location_id:
                     logging.info('Setting storage location for project: {0}: {1}'.format(project.id, project.name))
-                    self._synapse_client.setStorageLocation(project, self._storage_location_id)
+                    SynapseProxy.client().setStorageLocation(project, self._storage_location_id)
 
                 if self._admin_team:
                     logging.info(
@@ -242,18 +242,18 @@ class GhapMigrator:
 
     def has_write_permissions(self, project):
         # Check for user specific permissions.
-        user_perms = set(self._synapse_client.getPermissions(project, self._script_user.ownerId))
+        user_perms = set(SynapseProxy.client().getPermissions(project, self._script_user.ownerId))
         if ('CREATE' in user_perms) and ('UPDATE' in user_perms):
             return True
 
         # Check for team permissions.
-        acl = self._synapse_client._getACL(project)
+        acl = SynapseProxy.client()._getACL(project)
 
         for resourceAccess in acl['resourceAccess']:
             principalId = resourceAccess['principalId']
             try:
-                team = self._synapse_client.getTeam(principalId)
-                team_members = self._synapse_client.getTeamMembers(team)
+                team = SynapseProxy.client().getTeam(principalId)
+                team_members = SynapseProxy.client().getTeamMembers(team)
                 for team_member in team_members:
                     if team_member['member']['ownerId'] == self._script_user.ownerId:
                         team_perms = set(resourceAccess['accessType'])
@@ -267,9 +267,9 @@ class GhapMigrator:
     def grant_admin_access(self, project, grantee_id):
         accessType = ['UPDATE', 'DELETE', 'CHANGE_PERMISSIONS',
                       'CHANGE_SETTINGS', 'CREATE', 'DOWNLOAD', 'READ', 'MODERATE']
-        self._synapse_client.setPermissions(project, grantee_id, accessType=accessType, warn_if_inherits=False)
+        SynapseProxy.client().setPermissions(project, grantee_id, accessType=accessType, warn_if_inherits=False)
 
-    def find_or_create_folder(self, path, synapse_parent):
+    async def find_or_create_folder(self, path, synapse_parent):
         synapse_folder = None
 
         if not synapse_parent:
@@ -286,10 +286,10 @@ class GhapMigrator:
 
         full_synapse_path = self.get_synapse_path(folder_name, synapse_parent)
 
-        syn_folder_id = self._synapse_client.findEntityId(folder_name, parent=synapse_parent)
+        syn_folder_id = await SynapseProxy.findEntityIdAsync(folder_name, parent=synapse_parent)
 
         if syn_folder_id:
-            synapse_folder = self._synapse_client.get(syn_folder_id, downloadFile=False)
+            synapse_folder = await SynapseProxy.getAsync(syn_folder_id, downloadFile=False)
             self.set_synapse_parent(synapse_folder)
             self.add_processed_path(path)
             logging.info('[Folder EXISTS]: {0} -> {1}'.format(path, full_synapse_path))
@@ -302,7 +302,7 @@ class GhapMigrator:
                 try:
                     attempt_number += 1
                     exception = None
-                    synapse_folder = self._synapse_client.store(
+                    synapse_folder = await SynapseProxy.storeAsync(
                         Folder(name=folder_name, parent=synapse_parent), forceVersion=False)
                 except Exception as ex:
                     exception = ex
@@ -321,7 +321,7 @@ class GhapMigrator:
 
         return synapse_folder
 
-    def find_or_upload_file(self, local_file, synapse_parent):
+    async def find_or_upload_file(self, local_file, synapse_parent):
         synapse_file = None
         try:
             if not synapse_parent:
@@ -344,12 +344,12 @@ class GhapMigrator:
             full_synapse_path = self.get_synapse_path(filename, synapse_parent)
 
             # Check if the file has already been uploaded and has not changed since being uploaded.
-            syn_file_id = self._synapse_client.findEntityId(filename, parent=synapse_parent)
-            local_md5 = self.get_local_file_md5(local_file)
+            syn_file_id = await SynapseProxy.findEntityIdAsync(filename, parent=synapse_parent)
+            local_md5 = await self.get_local_file_md5(local_file)
 
             if syn_file_id:
 
-                synapse_file = self._synapse_client.get(syn_file_id, downloadFile=False)
+                synapse_file = await SynapseProxy.getAsync(syn_file_id, downloadFile=False)
                 synapse_file_md5 = synapse_file._file_handle['contentMd5']
 
                 if local_md5 == synapse_file_md5:
@@ -368,7 +368,7 @@ class GhapMigrator:
                 try:
                     attempt_number += 1
                     exception = None
-                    synapse_file = self._synapse_client.store(
+                    synapse_file = await SynapseProxy.storeAsync(
                         File(path=local_file, name=filename, parent=synapse_parent), forceVersion=False)
                 except Exception as ex:
                     exception = ex
@@ -393,11 +393,15 @@ class GhapMigrator:
 
         return synapse_file
 
-    def get_local_file_md5(self, filename):
-        out_buffer = StringIO()
-        sh.md5sum(filename, _out=out_buffer)
-        local_file_md5 = out_buffer.getvalue().split()[0]
-        return local_file_md5
+    async def get_local_file_md5(self, local_path):
+        md5 = hashlib.md5()
+        async with aiofiles.open(local_path, mode='rb') as fd:
+            while True:
+                chunk = await fd.read(1024 * 1024)
+                if not chunk:
+                    break
+                md5.update(chunk)
+        return md5.hexdigest()
 
     def set_synapse_parent(self, parent):
         self._synapse_parents[parent.id] = parent

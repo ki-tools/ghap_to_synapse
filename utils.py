@@ -15,11 +15,9 @@
 import os
 import logging
 import string
-import getpass
 import csv
 import sh
 import shutil
-import synapseclient
 import urllib.parse as UrlParse
 
 # This script needs to run in Python 3.4.
@@ -55,26 +53,7 @@ class Utils:
         logging.getLogger("sh").setLevel(logging.ERROR)
 
     @staticmethod
-    def synapse_login(username, password):
-        logging.info('Logging into Synapse...')
-        username = username or os.getenv('SYNAPSE_USERNAME')
-        password = password or os.getenv('SYNAPSE_PASSWORD')
-
-        if not username:
-            username = input('Synapse username: ')
-
-        if not password:
-            password = getpass.getpass(prompt='Synapse password: ')
-
-        try:
-            synapse_client = synapseclient.Synapse(skip_checks=True)
-            synapse_client.login(username, password, silent=True, rememberMe=False)
-            return synapse_client, None
-        except Exception as ex:
-            return None, str(ex)
-
-    @staticmethod
-    def process_repo_csv(csv_filename, work_dir, success_func, error_func):
+    async def process_repo_csv(csv_filename, work_dir, success_func, error_func):
         git_lfs_installed = Utils.git_lfs_installed()
 
         for row in Utils.csv_repo_reader(csv_filename):
@@ -99,7 +78,7 @@ class Utils:
                 for error in git_errors:
                     error_func(error)
             else:
-                success_func(git_url, repo_name, repo_local_path, git_folder, synapse_project_id, synapse_path)
+                await success_func(git_url, repo_name, repo_local_path, git_folder, synapse_project_id, synapse_path)
 
     @staticmethod
     def csv_repo_reader(csv_filename):
