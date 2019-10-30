@@ -19,6 +19,8 @@ import csv
 import sh
 import shutil
 import urllib.parse as UrlParse
+import aiofiles
+import hashlib
 
 # This script needs to run in Python 3.4.
 try:
@@ -257,6 +259,17 @@ class Utils:
     @staticmethod
     def get_path_parts(path):
         return filter(None, os.path.normpath(path).split(os.sep))
+
+    @staticmethod
+    async def get_local_file_md5(local_path):
+        md5 = hashlib.md5()
+        async with aiofiles.open(local_path, mode='rb') as fd:
+            while True:
+                chunk = await fd.read(1024 * 1024)
+                if not chunk:
+                    break
+                md5.update(chunk)
+        return md5.hexdigest()
 
 
 class LogFilter(logging.Filter):

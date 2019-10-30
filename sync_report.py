@@ -23,14 +23,16 @@ import synapseclient
 from utils import Utils
 from aio_manager import AioManager
 from synapse_proxy import SynapseProxy
+from synapse_comparer import SynapseComparer
 
 
-class SynReport:
-    def __init__(self, csv_filename, username=None, password=None, work_dir=None):
+class SyncReport:
+    def __init__(self, csv_filename, username=None, password=None, work_dir=None, with_view=False):
         self._csv_filename = csv_filename
         self._username = username
         self._password = password
         self._work_dir = None
+        self._with_view = with_view
 
         if work_dir is None:
             self._work_dir = Utils.expand_path(os.path.join('~', 'tmp', 'ghap'))
@@ -90,7 +92,7 @@ class SynReport:
         if project:
             logging.info('[Project FOUND] {0}: {1}'.format(project.id, project.name))
         else:
-            logging.info('[Project NOT Found] {0}'.format(synapse_project_id))
+            self.log_error('[Project NOT Found] {0}'.format(synapse_project_id))
             return
 
         if synapse_path:
@@ -106,7 +108,7 @@ class SynReport:
                     logging.info(
                         'SUCCESS: Synapse Folder found for: "{0}" in "{1}"'.format(folder_name, full_syn_path))
                 else:
-                    logging.info(
+                    self.log_error(
                         'FAIL: Synapse Folder not found for: "{0}" in "{1}"'.format(folder_name, full_syn_path))
                     return
 
@@ -114,14 +116,13 @@ class SynReport:
         if git_folder:
             start_path = os.path.join(repo_path, git_folder)
 
-        dirs, files = Utils.get_dirs_and_files(start_path)
-
-    def check_path(self, local_path, remote_parent):
-        pass
-
-    # async def get_syn_folder_files(self, syn_parent):
-    #     children = await list(SynapseProxy.getChildrenAsync(syn_parent, includeTypes=["folder", "file"]))
-    #     return children
+        comparer = SynapseComparer(path_parent.id,
+                                   start_path,
+                                   with_view=self._with_view,
+                                   ignores=[os.path.join(start_path, '.git')])
+        await comparer.start()
+        if comparer.has_errors:
+            self.log_error('Errors comparing: {0} | {1}'.format(git_url, repo_path))
 
     async def find_child(self, syn_parent, child_name, syn_type):
         """Tries to find the child of a parent of a particular name and type (folder/file)."""
@@ -137,7 +138,7 @@ class SynReport:
 
         try:
             if project_name_or_id.lower().startswith('syn'):
-                project = SynapseProxy.getAsync(project_name_or_id)
+                project = await SynapseProxy.getAsync(project_name_or_id)
             else:
                 project_id = await SynapseProxy.findEntityIdAsync(project_name_or_id)
                 project = await SynapseProxy.getAsync(project_id)
@@ -161,6 +162,10 @@ def main():
         parser.add_argument('-p', '--password', help='Synapse password.', default=None)
         parser.add_argument('-w', '--work-dir', help='The directory to git pull repos into.', default=None)
         parser.add_argument('-l', '--log-level', help='Set the logging level.', default='INFO')
+        parser.add_argument('-wv', '--with-view',
+                            help='Use an entity view for loading file info. Fastest for large projects.',
+                            default=False,
+                            action='store_true')
 
         args = parser.parse_args()
 
@@ -169,11 +174,12 @@ def main():
         log_filename = 'sync_report_log_{0}.txt'.format(timestamp)
         Utils.setup_logging(log_filename, log_level)
 
-        SynReport(
+        SyncReport(
             args.csv,
             username=args.username,
             password=args.password,
-            work_dir=args.work_dir
+            work_dir=args.work_dir,
+            with_view=args.with_view
         ).start()
     except Exception as ex:
         logging.exception('Unhandled exception: {0}'.format(ex))

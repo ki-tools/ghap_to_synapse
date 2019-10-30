@@ -20,8 +20,6 @@ import logging
 import time
 import datetime
 import random
-import aiofiles
-import hashlib
 import synapseclient
 from synapseclient import Project, Folder, File
 from utils import Utils
@@ -345,7 +343,7 @@ class GhapMigrator:
 
             # Check if the file has already been uploaded and has not changed since being uploaded.
             syn_file_id = await SynapseProxy.findEntityIdAsync(filename, parent=synapse_parent)
-            local_md5 = await self.get_local_file_md5(local_file)
+            local_md5 = await Utils.get_local_file_md5(local_file)
 
             if syn_file_id:
 
@@ -392,16 +390,6 @@ class GhapMigrator:
             self.log_error('Error uploading file: {0}, {1}'.format(local_file, ex))
 
         return synapse_file
-
-    async def get_local_file_md5(self, local_path):
-        md5 = hashlib.md5()
-        async with aiofiles.open(local_path, mode='rb') as fd:
-            while True:
-                chunk = await fd.read(1024 * 1024)
-                if not chunk:
-                    break
-                md5.update(chunk)
-        return md5.hexdigest()
 
     def set_synapse_parent(self, parent):
         self._synapse_parents[parent.id] = parent
