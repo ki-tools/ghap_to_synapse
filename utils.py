@@ -135,7 +135,16 @@ class Utils:
                 else:
                     sh.git.bake(_cwd=repo_path).pull()
             except Exception as ex:
-                errors.append('Error pulling repo: {0} : {1}'.format(git_url, ex))
+                # Try normal pull if lfs pull fails
+                if lfs:
+                    logging.info('Trying alternate git pull...')
+                    try:
+                        sh.git.bake(_cwd=repo_path).pull()
+                    except Exception as ex2:
+                        errors.append('Error pulling repo: {0} : {1}'.format(git_url, ex))
+                        errors.append('Error pulling repo: {0} : {1}'.format(git_url, ex2))
+                else:
+                    errors.append('Error pulling repo: {0} : {1}'.format(git_url, ex))
         else:
             # Checkout
             logging.info('  - Cloning into {0}'.format(repo_path))
@@ -145,7 +154,6 @@ class Utils:
                 else:
                     sh.git.bake(_cwd=work_dir).clone(git_url, repo_path)
             except Exception as ex:
-                errors.append('Error cloning repo: {0} : {1}'.format(git_url, ex))
                 if os.path.isdir(repo_path):
                     shutil.rmtree(repo_path)
 
@@ -158,9 +166,12 @@ class Utils:
                         sh.git.bake(_cwd=repo_path).config('remote.origin.fetch', '+refs/heads/*:refs/remotes/origin/*')
                         sh.git.bake(_cwd=repo_path).fetch('origin')
                     except Exception as ex2:
+                        errors.append('Error cloning repo: {0} : {1}'.format(git_url, ex))
                         errors.append('Error cloning repo: {0} : {1}'.format(git_url, ex2))
                         if os.path.isdir(repo_path):
                             shutil.rmtree(repo_path)
+                else:
+                    errors.append('Error cloning repo: {0} : {1}'.format(git_url, ex))
 
         return errors
 
