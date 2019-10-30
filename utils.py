@@ -126,7 +126,10 @@ class Utils:
         # https://github.com/git-lfs/git-lfs/issues/3524
         lfs = 'lfs' if git_lfs_installed else ''
 
-        if os.path.exists(repo_path):
+        can_pull = os.path.exists(repo_path)
+        can_clone = not can_pull
+
+        if can_pull:
             # Pull
             logging.info('  - Pulling Repo into {0}'.format(repo_path))
             try:
@@ -141,11 +144,20 @@ class Utils:
                     try:
                         sh.git.bake(_cwd=repo_path).pull()
                     except Exception as ex2:
-                        errors.append('Error pulling repo: {0} : {1}'.format(git_url, ex))
-                        errors.append('Error pulling repo: {0} : {1}'.format(git_url, ex2))
+                        logging.warning('Error pulling repo: {0} : {1}'.format(git_url, ex))
+                        logging.warning('Error pulling repo: {0} : {1}'.format(git_url, ex2))
+                        can_clone = True
                 else:
-                    errors.append('Error pulling repo: {0} : {1}'.format(git_url, ex))
-        else:
+                    logging.warning('Error pulling repo: {0} : {1}'.format(git_url, ex))
+                    can_clone = True
+
+        # Pull failed so cleanup and try clonning
+        if can_pull and can_clone:
+            logging.info('  - Pull failed, trying to clone instead.')
+            if os.path.isdir(repo_path):
+                shutil.rmtree(repo_path)
+
+        if can_clone:
             # Checkout
             logging.info('  - Cloning into {0}'.format(repo_path))
             try:
