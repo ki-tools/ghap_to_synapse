@@ -135,16 +135,13 @@ class Utils:
             # Pull
             logging.info('  - Pulling Repo into {0}'.format(repo_path))
             try:
-                if lfs:
-                    sh.git.bake(_cwd=repo_path).lfs('pull')
-                else:
-                    sh.git.bake(_cwd=repo_path).pull()
+                sh.git.bake(_cwd=repo_path).pull()
             except Exception as ex:
-                # Try normal pull if lfs pull fails
+                # Try lfs pull if pull fails
                 if lfs:
-                    logging.info('Trying alternate git pull...')
+                    logging.info('Trying git lfs pull...')
                     try:
-                        sh.git.bake(_cwd=repo_path).pull()
+                        sh.git.bake(_cwd=repo_path).lfs('pull')
                     except Exception as ex2:
                         logging.warning('Error pulling repo: {0} : {1}'.format(git_url, ex))
                         logging.warning('Error pulling repo: {0} : {1}'.format(git_url, ex2))
@@ -153,7 +150,7 @@ class Utils:
                     logging.warning('Error pulling repo: {0} : {1}'.format(git_url, ex))
                     can_clone = True
 
-        # Pull failed so cleanup and try clonning
+        # Pull failed so cleanup and try cloning
         if can_pull and can_clone:
             logging.info('  - Pull failed, trying to clone instead.')
             if os.path.isdir(repo_path):
