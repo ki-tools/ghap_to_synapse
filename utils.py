@@ -188,9 +188,7 @@ class Utils:
 
     @staticmethod
     def git_lfs_installed():
-        """
-        # Warn if git lfs is not installed.
-        """
+        """Warn if git lfs is not installed."""
         try:
             sh.git('lfs')
             return True
@@ -201,7 +199,16 @@ class Utils:
         return False
 
     @staticmethod
-    def create_project_name(repo_name, git_folder=None):
+    def build_project_name(repo_name, git_folder=None):
+        """Builds a project name from a repo name and git folder name.
+
+        Args:
+            repo_name: The name of the git repo.
+            git_folder: Optional git folder name.
+
+        Returns:
+            String
+        """
         project_name = 'GHAP - {0}'.format(repo_name)
         if git_folder:
             project_name += ' - {0}'.format(git_folder.replace('/', '-'))

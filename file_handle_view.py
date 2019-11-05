@@ -20,6 +20,7 @@ from synapse_proxy import SynapseProxy
 
 class FileHandleView(dict):
     COL_ID = 'id'
+    COL_NAME = 'name'
     COL_DATAFILEHANDLEID = 'dataFileHandleId'
 
     def __init__(self, scope):
@@ -35,18 +36,19 @@ class FileHandleView(dict):
     async def load(self):
         try:
             if isinstance(self.scope, syn.File):
-                self._add_item(self.scope.id, self.scope['dataFileHandleId'])
-            elif type(self.scope) in [syn.Project, syn.Folder]:
+                self._add_item(self.scope.id, self.scope.name, self.scope['dataFileHandleId'])
+            elif type(self.scope) in [syn.Project, syn.Folder, list]:
                 await self._create()
                 logging.info('Querying file view...')
                 query = await SynapseProxy.tableQueryAsync('SELECT * FROM {0}'.format(self.view.id))
 
                 id_col = self._get_table_column_index(query.headers, self.COL_ID)
+                name_col = self._get_table_column_index(query.headers, self.COL_NAME)
                 col_datafilehandleid = self._get_table_column_index(query.headers, self.COL_DATAFILEHANDLEID)
 
                 logging.info('Loading file view...')
                 for row in query:
-                    self._add_item(row[id_col], row[col_datafilehandleid])
+                    self._add_item(row[id_col], row[name_col], row[col_datafilehandleid])
             else:
                 raise Exception('Scope entity must be a Project, Folder, or File. {0}'.format(type(self.scope)))
         except Exception as ex:
@@ -66,9 +68,10 @@ class FileHandleView(dict):
         view_item = await self.get(syn_id)
         return await SynapseProxy.Aio.get_filehandle(syn_id, view_item.get(self.COL_DATAFILEHANDLEID))
 
-    def _add_item(self, id, datafilehandleid):
+    def _add_item(self, id, name, datafilehandleid):
         self[id] = {
             self.COL_ID: id,
+            self.COL_NAME: name,
             self.COL_DATAFILEHANDLEID: datafilehandleid
         }
 
@@ -87,13 +90,14 @@ class FileHandleView(dict):
         logging.info('Creating file view: {0}'.format(name))
         cols = [
             syn.Column(name=self.COL_ID, columnType='ENTITYID'),
+            syn.Column(name=self.COL_NAME, columnType='STRING', maximumSize=256),
             syn.Column(name=self.COL_DATAFILEHANDLEID, columnType='FILEHANDLEID')
         ]
         schema = syn.EntityViewSchema(name=name,
                                       columns=cols,
                                       properties=None,
                                       parent=self.view_project,
-                                      scopes=[self.scope],
+                                      scopes=self.scope if isinstance(self.scope, list) else [self.scope],
                                       includeEntityTypes=[syn.EntityViewType.FILE],
                                       addDefaultViewColumns=False,
                                       addAnnotationColumns=False)

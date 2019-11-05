@@ -80,15 +80,15 @@ class SyncReport:
 
     async def report_on_repo(self, git_url, repo_name, repo_path, git_folder, synapse_project_id, synapse_path):
         logging.info('-' * 80)
-        project_id_or_name = synapse_project_id if synapse_project_id else Utils.create_project_name(repo_name,
-                                                                                                     git_folder)
+        project_id_or_name = synapse_project_id if synapse_project_id else Utils.build_project_name(repo_name,
+                                                                                                    git_folder)
 
         logging.info('GIT Folder: {0}'.format(git_folder))
         logging.info('Project ID: {0}'.format(synapse_project_id))
         logging.info('Project Path: {0}'.format(synapse_path))
         logging.info('')
 
-        project = await self.find_project(project_id_or_name)
+        project = await SynapseProxy.find_project_by_name_or_id(project_id_or_name, self.log_error)
         if project:
             logging.info('[Project FOUND] {0}: {1}'.format(project.id, project.name))
         else:
@@ -122,7 +122,7 @@ class SyncReport:
                                    ignores=[os.path.join(start_path, '.git')])
         await comparer.start()
         if comparer.has_errors:
-            self.log_error('Errors comparing: {0} | {1}'.format(git_url, repo_path))
+            self.log_error('Errors comparing: {0} <-> {1}'.format(git_url, repo_path))
 
     async def find_child(self, syn_parent, child_name, syn_type):
         """Tries to find the child of a parent of a particular name and type (folder/file)."""
@@ -132,25 +132,6 @@ class SyncReport:
             if isinstance(syn_obj, syn_type):
                 return syn_obj
         return None
-
-    async def find_project(self, project_name_or_id):
-        project = None
-
-        try:
-            if project_name_or_id.lower().startswith('syn'):
-                project = await SynapseProxy.getAsync(project_name_or_id)
-            else:
-                project_id = await SynapseProxy.findEntityIdAsync(project_name_or_id)
-                project = await SynapseProxy.getAsync(project_id)
-        except synapseclient.exceptions.SynapseHTTPError as ex:
-            if ex.response.status_code >= 400:
-                self.log_error('Script user does not have READ permission to Project: {0}'.format(project_name_or_id))
-                return None
-        except Exception as ex:
-            # Project doesn't exist.
-            pass
-
-        return project
 
 
 def main():

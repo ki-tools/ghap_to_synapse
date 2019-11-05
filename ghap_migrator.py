@@ -138,7 +138,7 @@ class GhapMigrator:
             project = await self.find_or_create_project(synapse_project_id)
         else:
             # Find or Create the Project.
-            project_name = Utils.create_project_name(repo_name, git_folder)
+            project_name = Utils.build_project_name(repo_name, git_folder)
             project = await self.find_or_create_project(project_name)
 
         if not project:
@@ -198,21 +198,7 @@ class GhapMigrator:
             self.log_error('Error uploading folder: {0}, {1}'.format(local_path, ex))
 
     async def find_or_create_project(self, project_name_or_id):
-        project = None
-
-        try:
-            if project_name_or_id.lower().startswith('syn'):
-                project = await SynapseProxy.getAsync(project_name_or_id)
-            else:
-                project_id = await SynapseProxy.findEntityIdAsync(project_name_or_id)
-                project = await SynapseProxy.getAsync(project_id)
-        except synapseclient.exceptions.SynapseHTTPError as ex:
-            if ex.response.status_code >= 400:
-                self.log_error('Script user does not have READ permission to Project: {0}'.format(project_name_or_id))
-                return None
-        except Exception as ex:
-            # Project doesn't exist.
-            pass
+        project = await SynapseProxy.find_project_by_name_or_id(project_name_or_id, self.log_error)
 
         if project:
             logging.info('[Project FOUND] {0}: {1}'.format(project.id, project.name))

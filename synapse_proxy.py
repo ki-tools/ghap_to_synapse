@@ -1,3 +1,17 @@
+# Copyright 2017-present, Bill & Melinda Gates Foundation
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import os
 import logging
 import getpass
@@ -95,6 +109,35 @@ class SynapseProxy:
     async def findEntityIdAsync(cls, name, **kwargs):
         args = partial(cls.findEntityId, name=name, **kwargs)
         return await asyncio.get_running_loop().run_in_executor(None, args)
+
+    @classmethod
+    async def find_project_by_name_or_id(cls, project_name_or_id, log_error_func):
+        """Finds a Project by its name or ID.
+
+        Args:
+            project_name_or_id: The name or ID of the project to find.
+            log_error_func: The error function.
+
+        Returns:
+            Project or None
+        """
+        project = None
+
+        try:
+            if project_name_or_id.lower().startswith('syn'):
+                project = await cls.getAsync(project_name_or_id)
+            else:
+                project_id = await cls.findEntityIdAsync(project_name_or_id)
+                project = await cls.getAsync(project_id)
+        except syn.exceptions.SynapseHTTPError as ex:
+            if ex.response.status_code >= 400:
+                log_error_func('Script user does not have READ permission to Project: {0}'.format(project_name_or_id))
+                return None
+        except Exception as ex:
+            # Project doesn't exist.
+            pass
+
+        return project
 
     class Aio:
         # File downloads have a max of 1 hour to download.
