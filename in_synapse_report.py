@@ -28,8 +28,9 @@ from file_handle_view import FileHandleView
 
 class InSynapseReport:
 
-    def __init__(self, work_dir, username=None, password=None):
+    def __init__(self, work_dir, start_dir, username=None, password=None):
         self._work_dir = Utils.expand_path(work_dir)
+        self._start_dir = Utils.expand_path(start_dir)
         self._username = username
         self._password = password
 
@@ -44,11 +45,10 @@ class InSynapseReport:
 
     def start(self):
         self._start_time = time.time()
-        if not os.path.exists(self._work_dir):
-            os.makedirs(self._work_dir)
 
         logging.info("Started at: {0}".format(datetime.datetime.now()))
-        logging.info('Directory: {0}'.format(self._work_dir))
+        logging.info('Working Directory: {0}'.format(self._work_dir))
+        logging.info('Starting Directory: {0}'.format(self._start_dir))
 
         if not SynapseProxy.login(self._username, self._password):
             self.log_error('Synapse login failed: {0}'.format(SynapseProxy.login_error))
@@ -70,7 +70,7 @@ class InSynapseReport:
 
     async def _startAsync(self):
 
-        for dirpath, _, filenames in os.walk(self._work_dir):
+        for dirpath, _, filenames in os.walk(self._start_dir):
             if '.git' in dirpath.split(os.sep):
                 logging.info('Skipping: {0}'.format(dirpath))
                 continue
@@ -95,6 +95,7 @@ class InSynapseReport:
 def main():
     try:
         parser = argparse.ArgumentParser()
+        parser.add_argument('work', help='The work directory', default=None)
         parser.add_argument('dir', help='The directory containing all the files to check.', default=None)
         parser.add_argument('-u', '--username', help='Synapse username.', default=None)
         parser.add_argument('-p', '--password', help='Synapse password.', default=None)
@@ -108,6 +109,7 @@ def main():
         Utils.setup_logging(log_filename, log_level)
 
         InSynapseReport(
+            args.work,
             args.dir,
             username=args.username,
             password=args.password
