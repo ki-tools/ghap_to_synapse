@@ -21,6 +21,7 @@ import time
 import datetime
 import random
 import synapseclient
+import asyncio
 from synapseclient import Project, Folder, File
 from utils import Utils
 from aio_manager import AioManager
@@ -314,7 +315,7 @@ class GhapMigrator:
                     if attempt_number < max_attempts:
                         sleep_time = random.randint(1, 5)
                         logging.info('[Folder RETRY in {0}s] {1} -> {2}'.format(sleep_time, path, full_synapse_path))
-                        time.sleep(sleep_time)
+                        asyncio.sleep(sleep_time)
 
             if exception:
                 self.log_error('[Folder FAILED] {0} -> {1} : {2}'.format(path, full_synapse_path, str(exception)))
@@ -381,7 +382,7 @@ class GhapMigrator:
                         sleep_time = random.randint(1, 5)
                         logging.info(
                             '[File RETRY in {0}s] {1} -> {2}'.format(sleep_time, local_file, full_synapse_path))
-                        time.sleep(sleep_time)
+                        asyncio.sleep(sleep_time)
 
             if exception:
                 self.log_error('[File FAILED] {0} -> {1} : {2}'.format(local_file, full_synapse_path, str(exception)))
