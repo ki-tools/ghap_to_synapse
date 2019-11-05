@@ -96,7 +96,7 @@ def main():
     try:
         parser = argparse.ArgumentParser()
         parser.add_argument('work', help='The work directory', default=None)
-        parser.add_argument('dir', help='The directory containing all the files to check.', default=None)
+        parser.add_argument('start', help='The directory containing all the files to check.', default=None)
         parser.add_argument('-u', '--username', help='Synapse username.', default=None)
         parser.add_argument('-p', '--password', help='Synapse password.', default=None)
         parser.add_argument('-l', '--log-level', help='Set the logging level.', default='INFO')
@@ -110,7 +110,7 @@ def main():
 
         InSynapseReport(
             args.work,
-            args.dir,
+            args.start,
             username=args.username,
             password=args.password
         ).start()
