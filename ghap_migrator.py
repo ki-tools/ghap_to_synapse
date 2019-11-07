@@ -336,12 +336,25 @@ class GhapMigrator:
 
             # Check if the file has already been uploaded and has not changed since being uploaded.
             syn_file_id = await SynapseProxy.findEntityIdAsync(filename, parent=synapse_parent)
+
+            # Synapse trims the "Synapse Name" of a file so if the file begins or ends with a space
+            # try and find the entity with the spaces removed.
+            if not syn_file_id and (filename.startswith(' ') or filename.endswith(' ')):
+                syn_file_id = await SynapseProxy.findEntityIdAsync(filename.strip(), parent=synapse_parent)
+
             local_md5 = await Utils.get_local_file_md5(local_file)
 
             if syn_file_id:
-
                 synapse_file = await SynapseProxy.getAsync(syn_file_id, downloadFile=False)
                 synapse_file_md5 = synapse_file._file_handle['contentMd5']
+                synapse_file_name = synapse_file._file_handle['fileName']
+
+                # Make sure the actual file name matches.
+                if synapse_file_name != filename:
+                    raise Exception(
+                        'Synapse file name: {0} ({1}) does not match local file name: {2}'.format(synapse_file_name,
+                                                                                                  synapse_file.id,
+                                                                                                  local_file))
 
                 if local_md5 == synapse_file_md5:
                     logging.info('[File is CURRENT] {0} -> {1}'.format(local_file, full_synapse_path))
