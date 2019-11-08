@@ -259,7 +259,7 @@ class SynapseProxy:
 
             res = await cls.rest_post('/entity/{0}/bundle2'.format(syn_id), body=request)
 
-            return res.get('entity').get('dataFileHandleId')
+            return res.get('entity').get('name'), res.get('entity').get('dataFileHandleId')
 
         @classmethod
         async def get_filehandle(cls, syn_id, file_handle_id):

@@ -61,7 +61,8 @@ class FileHandleView(dict):
 
     async def get(self, syn_id):
         if syn_id not in self:
-            self._add_item(syn_id, await SynapseProxy.Aio.get_file_handle_id(syn_id))
+            name, file_handle_id = await SynapseProxy.Aio.get_file_handle_id(syn_id)
+            self._add_item(syn_id, name, file_handle_id)
         return self[syn_id]
 
     async def get_filehandle(self, syn_id):

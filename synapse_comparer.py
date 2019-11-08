@@ -198,7 +198,11 @@ class SynapseComparer:
                                '  LOCAL  [+]: {0}'.format(local_file.path),
                                '  REMOTE [+]: {0}({1})/{2}'.format(parent['name'], parent['id'], local_file.name))
             else:
-                self._log_error('[REMOTE FILE NOT FOUND]',
+                cause = ''
+                if os.path.getsize(local_file.path) == 0:
+                    cause = ' [FILE HAS ZERO SIZE, CANNOT BE UPLOADED TO SYNAPSE]'
+
+                self._log_error('[REMOTE FILE NOT FOUND]{0}'.format(cause),
                                 '  LOCAL  [+]: {0}'.format(local_file.path),
                                 '  REMOTE [-]: {0}({1})/{2}'.format(parent['name'], parent['id'], local_file.name))
 
