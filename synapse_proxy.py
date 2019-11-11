@@ -16,7 +16,10 @@ import os
 import logging
 import getpass
 import asyncio
+import aiohttp
+import aiofiles
 import synapseclient as syn
+import random
 from functools import partial
 from utils import Utils
 from aio_manager import AioManager
@@ -111,6 +114,16 @@ class SynapseProxy:
         return await asyncio.get_running_loop().run_in_executor(None, args)
 
     @classmethod
+    def getFromFile(cls, md5):
+        return cls.client().restGET('/entity/md5/%s' % md5)['results']
+
+    @classmethod
+    async def getFromFileAsync(cls, filepath, **kwargs):
+        md5 = await Utils.get_local_file_md5(filepath)
+        args = partial(cls.getFromFile, md5=md5, **kwargs)
+        return await asyncio.get_running_loop().run_in_executor(None, args)
+
+    @classmethod
     async def find_project_by_name_or_id(cls, project_name_or_id, log_error_func):
         """Finds a Project by its name or ID.
 
@@ -166,6 +179,31 @@ class SynapseProxy:
                         await asyncio.sleep(sleep_time)
                     else:
                         logging.error('  Failed POST: {0}'.format(url))
+                        raise
+
+        @classmethod
+        async def rest_get(cls, url, endpoint=None, headers=None, body=None):
+            max_attempts = 3
+            attempt_number = 0
+
+            while True:
+                try:
+                    uri, headers = SynapseProxy.client()._build_uri_and_headers(url, endpoint=endpoint, headers=headers)
+
+                    if 'signature' in headers and isinstance(headers['signature'], bytes):
+                        headers['signature'] = headers['signature'].decode("utf-8")
+
+                    async with AioManager.AIOSESSION.get(uri, headers=headers, json=body) as response:
+                        return await response.json()
+                except Exception as ex:
+                    logging.exception(ex)
+                    attempt_number += 1
+                    if attempt_number < max_attempts:
+                        sleep_time = random.randint(1, 5)
+                        logging.info('  Retrying GET in: {0}'.format(sleep_time))
+                        await asyncio.sleep(sleep_time)
+                    else:
+                        logging.error('  Failed GET: {0}'.format(url))
                         raise
 
         @classmethod
@@ -279,3 +317,9 @@ class SynapseProxy:
                                       body=body)
 
             return res.get('requestedFiles', [])[0]
+
+        @classmethod
+        async def get_from_file(cls, filepath):
+            md5 = await Utils.get_local_file_md5(filepath)
+            res = await cls.rest_get('/entity/md5/{0}'.format(md5))
+            return res.get('results')

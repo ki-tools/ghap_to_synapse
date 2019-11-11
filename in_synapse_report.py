@@ -78,17 +78,21 @@ class InSynapseReport:
             for filename in filenames:
                 full_file_path = os.path.join(dirpath, filename)
 
-                syn_file = None
+                found = False
                 try:
-                    syn_file = SynapseProxy.client()._getFromFile(full_file_path)
-                    logging.info(
-                        'Found: {0} at: {1}({2})'.format(full_file_path, syn_file['entity']['name'],
-                                                         syn_file['entity']['id']))
+                    # results = await SynapseProxy.getFromFileAsync(full_file_path)
+                    results = await SynapseProxy.Aio.get_from_file(full_file_path)
+                    if results:
+                        found = True
+                        logging.info('Found {0} results for: {1}'.format(len(results), full_file_path))
+                        for result in results:
+                            logging.info(
+                                '  - Found at: {0}({1})'.format(result['name'], result['id']))
                 except synapseclient.exceptions.SynapseFileNotFoundError as ex:
                     # Not found
                     pass
 
-                if not syn_file:
+                if not found:
                     self.log_error('NOT Found in Synapse: {0}'.format(full_file_path))
 
 
