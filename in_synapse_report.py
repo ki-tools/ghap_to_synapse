@@ -80,7 +80,7 @@ class InSynapseReport:
 
                 found = False
                 try:
-                    # results = await SynapseProxy.getFromFileAsync(full_file_path)
+                    # NOTE: This request to Synapse will start returning 500 errors if too many files match the MD5.
                     results = await SynapseProxy.Aio.get_from_file(full_file_path)
                     if results:
                         found = True
