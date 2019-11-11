@@ -31,7 +31,7 @@ from synapse_proxy import SynapseProxy
 class GhapMigrator:
 
     def __init__(self, csv_filename, username=None, password=None, admin_team_id=None, storage_location_id=None,
-                 work_dir=None):
+                 work_dir=None, git_pull_only=False):
         self._csv_filename = csv_filename
         self._username = username
         self._password = password
@@ -40,6 +40,7 @@ class GhapMigrator:
         self._storage_location_id = storage_location_id
         self._storage_location = None
         self._work_dir = None
+        self._git_pull_only = git_pull_only
 
         if work_dir is None:
             self._work_dir = Utils.expand_path(os.path.join('~', 'tmp', 'ghap'))
@@ -128,7 +129,14 @@ class GhapMigrator:
         else:
             self._storage_location_id = None
 
-        await Utils.process_repo_csv(self._csv_filename, self._work_dir, self.push_to_synapse, self.log_error)
+        if self._git_pull_only:
+            await Utils.process_repo_csv(self._csv_filename, self._work_dir, self.repo_pulled, self.log_error)
+        else:
+            await Utils.process_repo_csv(self._csv_filename, self._work_dir, self.push_to_synapse, self.log_error)
+
+    async def repo_pulled(self, git_url, repo_name, repo_path, git_folder, synapse_project_id, synapse_path):
+        # noop
+        pass
 
     async def push_to_synapse(self, git_url, repo_name, repo_path, git_folder, synapse_project_id, synapse_path):
         project = None
@@ -431,6 +439,10 @@ def main():
                             help='The Storage location ID for projects that are created.', default=None)
         parser.add_argument('-w', '--work-dir', help='The directory to git pull repos into.', default=None)
         parser.add_argument('-l', '--log-level', help='Set the logging level.', default='INFO')
+        parser.add_argument('-g', '--git-pull-only',
+                            help='Only git pull the repos in the CSV file.',
+                            default=False,
+                            action='store_true')
 
         args = parser.parse_args()
 
@@ -445,7 +457,8 @@ def main():
             password=args.password,
             admin_team_id=args.admin_team_id,
             storage_location_id=args.storage_location_id,
-            work_dir=args.work_dir
+            work_dir=args.work_dir,
+            git_pull_only=args.git_pull_only
         ).start()
     except Exception as ex:
         logging.exception('Unhandled exception: {0}'.format(ex))
