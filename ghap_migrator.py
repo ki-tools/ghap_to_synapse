@@ -22,6 +22,7 @@ import datetime
 import random
 import synapseclient
 import asyncio
+import csv
 from synapseclient import Project, Folder, File
 from utils import Utils
 from aio_manager import AioManager
@@ -31,7 +32,7 @@ from synapse_proxy import SynapseProxy
 class GhapMigrator:
 
     def __init__(self, csv_filename, username=None, password=None, admin_team_id=None, storage_location_id=None,
-                 work_dir=None, git_pull_only=False):
+                 work_dir=None, git_pull_only=False, timestamp=None):
         self._csv_filename = csv_filename
         self._username = username
         self._password = password
@@ -41,6 +42,7 @@ class GhapMigrator:
         self._storage_location = None
         self._work_dir = None
         self._git_pull_only = git_pull_only
+        self._timestamp = timestamp
 
         if work_dir is None:
             self._work_dir = Utils.expand_path(os.path.join('~', 'tmp', 'ghap'))
@@ -89,6 +91,7 @@ class GhapMigrator:
             self.log_error('Synapse login failed: {0}'.format(SynapseProxy.login_error))
         else:
             AioManager.start(self._startAsync)
+            self.flush_csv_lines()
 
         logging.info('#' * 80)
 
@@ -111,6 +114,9 @@ class GhapMigrator:
                 logging.error(' - {0}'.format(line))
         else:
             logging.info('Completed Successfully.')
+
+        if self.WRITE_CSV_LINES_FILE:
+            logging.info('Processed CSV File: {0}'.format(self.WRITE_CSV_LINES_FILE))
 
     async def _startAsync(self):
         self._script_user = SynapseProxy.client().getUserProfile()
@@ -293,6 +299,7 @@ class GhapMigrator:
             synapse_folder = await SynapseProxy.getAsync(syn_folder_id, downloadFile=False)
             self.set_synapse_parent(synapse_folder)
             self.add_processed_path(path)
+            self.write_csv_line(path, full_synapse_path, synapse_folder.id)
             logging.info('[Folder EXISTS]: {0} -> {1}'.format(path, full_synapse_path))
         else:
             max_attempts = 5
@@ -317,6 +324,7 @@ class GhapMigrator:
                 self.log_error('[Folder FAILED] {0} -> {1} : {2}'.format(path, full_synapse_path, str(exception)))
             else:
                 self.add_processed_path(path)
+                self.write_csv_line(path, full_synapse_path, synapse_folder.id)
                 logging.info('[Folder CREATED] {0} -> {1}'.format(path, full_synapse_path))
                 self.set_synapse_parent(synapse_folder)
 
@@ -332,6 +340,7 @@ class GhapMigrator:
             if os.path.getsize(local_file) < 1:
                 logging.info('Skipping Empty File: {0}'.format(local_file))
                 self.add_processed_path(local_file)
+                self.write_csv_line(local_file, '-empty-file-not-uploaded-', '-')
                 return synapse_file
 
             filename = os.path.basename(local_file)
@@ -369,6 +378,7 @@ class GhapMigrator:
                 if local_md5 == synapse_file_md5:
                     logging.info('[File is CURRENT] {0} -> {1}'.format(local_file, full_synapse_path))
                     self.add_processed_path(local_file)
+                    self.write_csv_line(local_file, full_synapse_path, synapse_file.id)
                     return synapse_file
                 else:
                     logging.info('[File has CHANGES] {0} -> {1}'.format(local_file, full_synapse_path))
@@ -401,6 +411,7 @@ class GhapMigrator:
                     self.log_error('Local MD5 does not match remote MD5 for: {0}'.format(local_file))
 
                 self.add_processed_path(local_file)
+                self.write_csv_line(local_file, full_synapse_path, synapse_file.id)
                 logging.info('[File UPLOADED] {0} -> {1}'.format(local_file, full_synapse_path))
         except Exception as ex:
             self.log_error('Error uploading file: {0}, {1}'.format(local_file, ex))
@@ -428,6 +439,41 @@ class GhapMigrator:
 
         return os.path.join(*segments)
 
+    WRITE_CSV_LINES_FILE = None
+    WRITE_CSV_LINES_HEADERS = ['local_path', 'remote_path', 'synapse_id']
+    WRITE_CSV_LINES_BUFFER = []
+
+    def write_csv_line(self, local_path, remote_path, synapse_id):
+        self.WRITE_CSV_LINES_BUFFER.append({
+            'local_path': local_path,
+            'remote_path': remote_path,
+            'synapse_id': synapse_id
+        })
+
+        if len(self.WRITE_CSV_LINES_BUFFER) >= 5000 or len(self.WRITE_CSV_LINES_BUFFER) == 1:
+            self.flush_csv_lines()
+
+    def flush_csv_lines(self):
+        is_new = False
+
+        if self.WRITE_CSV_LINES_FILE is None:
+            is_new = True
+            self.WRITE_CSV_LINES_FILE = 'ghap_migrator_processed_{0}.csv'.format(self._timestamp)
+
+        with open(self.WRITE_CSV_LINES_FILE, mode='a+') as csv_file:
+            writer = csv.DictWriter(csv_file,
+                                    delimiter=',',
+                                    quotechar='"',
+                                    fieldnames=self.WRITE_CSV_LINES_HEADERS,
+                                    quoting=csv.QUOTE_ALL)
+            if is_new:
+                writer.writeheader()
+
+            for obj in self.WRITE_CSV_LINES_BUFFER:
+                writer.writerow(obj)
+
+        self.WRITE_CSV_LINES_BUFFER.clear()
+
 
 def main():
     try:
@@ -449,7 +495,7 @@ def main():
         args = parser.parse_args()
 
         log_level = getattr(logging, args.log_level.upper())
-        timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S%f")
+        timestamp = Utils.timestamp_str()
         log_filename = 'ghap_migrator_log_{0}.txt'.format(timestamp)
         Utils.setup_logging(log_filename, log_level)
 
@@ -460,7 +506,8 @@ def main():
             admin_team_id=args.admin_team_id,
             storage_location_id=args.storage_location_id,
             work_dir=args.work_dir,
-            git_pull_only=args.git_pull_only
+            git_pull_only=args.git_pull_only,
+            timestamp=timestamp
         ).start()
     except Exception as ex:
         logging.exception('Unhandled exception: {0}'.format(ex))

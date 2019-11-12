@@ -26,4 +26,5 @@ var/
 .python-version
 htmlcov
 *_log*.txt
+*_processed*.csv
 test.csv

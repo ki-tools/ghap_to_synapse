@@ -21,6 +21,7 @@ import shutil
 import urllib.parse as UrlParse
 import aiofiles
 import hashlib
+import datetime
 
 # This script needs to run in Python 3.4.
 try:
@@ -284,6 +285,10 @@ class Utils:
                     break
                 md5.update(chunk)
         return md5.hexdigest()
+
+    @staticmethod
+    def timestamp_str():
+        return datetime.datetime.now().strftime("%Y%m%d%H%M%S%f")
 
 
 class LogFilter(logging.Filter):
