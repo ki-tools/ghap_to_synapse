@@ -130,8 +130,10 @@ class GhapMigrator:
             self._storage_location_id = None
 
         if self._git_pull_only:
+            logging.info('Action: git clone/pull only')
             await Utils.process_repo_csv(self._csv_filename, self._work_dir, self.repo_pulled, self.log_error)
         else:
+            logging.info('Action: migrate')
             await Utils.process_repo_csv(self._csv_filename, self._work_dir, self.push_to_synapse, self.log_error)
 
     async def repo_pulled(self, git_url, repo_name, repo_path, git_folder, synapse_project_id, synapse_path):

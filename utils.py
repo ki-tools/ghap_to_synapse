@@ -54,8 +54,14 @@ class Utils:
         # Silence sh logging
         logging.getLogger("sh").setLevel(logging.ERROR)
 
+    # Stores processed repos so they don't get pulled multiple times.
+    # Used by: Utils.process_repo_csv
+    PROCESSED_REPOS = []
+
     @staticmethod
     async def process_repo_csv(csv_filename, work_dir, success_func, error_func):
+        Utils.PROCESSED_REPOS = []
+
         git_lfs_installed = Utils.git_lfs_installed()
 
         for row in Utils.csv_repo_reader(csv_filename):
@@ -67,14 +73,18 @@ class Utils:
             logging.info('=' * 80)
             logging.info('Processing {0}'.format(git_url))
             if git_folder:
-                logging.info('  - Folder: {0}'.format(git_folder))
+                logging.info('  - Target Folder: {0}'.format(git_folder))
 
             repo_url_path, repo_name, repo_local_path = Utils.parse_git_url(git_url, work_dir)
 
-            git_errors = Utils.get_git_repo(git_url,
-                                            repo_local_path,
-                                            work_dir,
-                                            git_lfs_installed=git_lfs_installed)
+            if git_url not in Utils.PROCESSED_REPOS:
+                git_errors = Utils.get_git_repo(git_url,
+                                                repo_local_path,
+                                                work_dir,
+                                                git_lfs_installed=git_lfs_installed)
+                Utils.PROCESSED_REPOS.append(git_url)
+            else:
+                logging.info('  - Repo Root: {0}'.format(repo_local_path))
 
             if git_errors:
                 for error in git_errors:
@@ -133,7 +143,7 @@ class Utils:
 
         if can_pull:
             # Pull
-            logging.info('  - Pulling Repo into {0}'.format(repo_path))
+            logging.info('  - Pulling Repo into: {0}'.format(repo_path))
             try:
                 sh.git.bake(_cwd=repo_path).pull()
             except Exception as ex:
@@ -158,7 +168,7 @@ class Utils:
 
         if can_clone:
             # Checkout
-            logging.info('  - Cloning into {0}'.format(repo_path))
+            logging.info('  - Cloning into: {0}'.format(repo_path))
             try:
                 if lfs:
                     sh.git.bake(_cwd=work_dir).lfs('clone', git_url, repo_path)
