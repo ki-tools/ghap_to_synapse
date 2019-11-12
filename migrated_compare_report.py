@@ -70,7 +70,8 @@ class MigratedCompareReport:
         for file in files:
             row = self._find_csv_row(file.path)
             if row:
-                logging.info('[FILE MIGRATED] {0}'.format(file.path))
+                logging.info(
+                    '[FILE MIGRATED] {0} -> {1} ({2})'.format(file.path, row['remote_path'], row['synapse_id']))
             else:
                 if os.path.getsize(file.path) > 0:
                     self.log_error('[FILE NOT MIGRATED] {0}'.format(file.path))
@@ -78,11 +79,6 @@ class MigratedCompareReport:
                     logging.warning('[FILE NOT MIGRATED] [HAS ZERO SIZE] {0}'.format(file.path))
 
         for dir in dirs:
-            # row = self._find_csv_row(dir.path)
-            # if row:
-            #     logging.info('[DIRECTORY MIGRATED] {0}'.format(dir.path))
-            # else:
-            #     self.log_error('[DIRECTORY NOT MIGRATED] {0}'.format(dir.path))
             self._compare(dir.path)
 
     def _load_csv(self):
