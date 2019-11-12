@@ -23,11 +23,12 @@ from file_handle_view import FileHandleView
 
 
 class SynapseComparer:
-    def __init__(self, starting_entity_id, local_path, with_view=False, ignores=None):
+    def __init__(self, starting_entity_id, local_path, with_view=False, ignores=None, delete_remotes=False):
         self._starting_entity_id = starting_entity_id
         self._local_path = Utils.expand_path(local_path)
         self._with_view = with_view
         self._ignores = []
+        self._delete_remotes = delete_remotes
         for ignore in (ignores or []):
             if ignore.lower().startswith('syn'):
                 self._ignores.append(ignore.lower())
@@ -149,9 +150,15 @@ class SynapseComparer:
                                         '  LOCAL  [-]: {0} ({1})'.format(local_match.path, local_md5))
 
             else:
-                self._log_error('[LOCAL FILE NOT FOUND] [{0}]'.format(progress_msg),
+                extra_log = ' '
+                if self._delete_remotes:
+                    extra_log = ' [DELETING REMOTE FILE] '
+
+                self._log_error('[LOCAL FILE NOT FOUND]{0}[{1}]'.format(extra_log, progress_msg),
                                 '  REMOTE [+]: {0}({1})'.format(remote_file['name'], remote_file['id']),
                                 '  LOCAL  [-]: {0}'.format(os.path.join(local_path, remote_file['name'])))
+                if self._delete_remotes:
+                    await SynapseProxy.deleteAsync(remote_file['id'])
 
         for remote_dir in remote_dirs:
             local_match = self._find_by_name(local_dirs, remote_dir['name'])
@@ -175,9 +182,15 @@ class SynapseComparer:
 
                 await self._check_path(remote_dir, os.path.join(local_path, remote_dir['name']))
             else:
-                self._log_error('[LOCAL DIRECTORY NOT FOUND]',
+                extra_log = ''
+                if self._delete_remotes:
+                    extra_log = ' [DELETING REMOTE DIRECTORY]'
+
+                self._log_error('[LOCAL DIRECTORY NOT FOUND]{0}'.format(extra_log),
                                 '  REMOTE [+]: {0}({1})'.format(remote_dir['name'], remote_dir['id']),
                                 '  LOCAL  [-]: {0}'.format(os.path.join(local_path, remote_dir['name'])))
+                if self._delete_remotes:
+                    await SynapseProxy.deleteAsync(remote_dir['id'])
 
         for local_file in local_files:
             remote_match = self._find_by_name(remote_files, local_file.name)

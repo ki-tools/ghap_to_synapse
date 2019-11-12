@@ -27,12 +27,14 @@ from synapse_comparer import SynapseComparer
 
 
 class SyncReport:
-    def __init__(self, csv_filename, username=None, password=None, work_dir=None, with_view=False):
+    def __init__(self, csv_filename, username=None, password=None, work_dir=None, with_view=False,
+                 delete_remotes=False):
         self._csv_filename = csv_filename
         self._username = username
         self._password = password
         self._work_dir = None
         self._with_view = with_view
+        self._delete_remotes = delete_remotes
 
         if work_dir is None:
             self._work_dir = Utils.expand_path(os.path.join('~', 'tmp', 'ghap'))
@@ -119,7 +121,8 @@ class SyncReport:
         comparer = SynapseComparer(path_parent.id,
                                    start_path,
                                    with_view=self._with_view,
-                                   ignores=[os.path.join(start_path, '.git')])
+                                   ignores=[os.path.join(start_path, '.git')],
+                                   delete_remotes=self._delete_remotes)
         await comparer.start()
         if comparer.has_errors:
             self.log_error('Errors comparing: {0} <-> {1}'.format(git_url, repo_path))
@@ -147,6 +150,10 @@ def main():
                             help='Use an entity view for loading file info. Fastest for large projects.',
                             default=False,
                             action='store_true')
+        parser.add_argument('-dr', '--delete-remotes',
+                            help='Delete remote Folders and Files that do not exist locally.',
+                            default=False,
+                            action='store_true')
 
         args = parser.parse_args()
 
@@ -160,7 +167,8 @@ def main():
             username=args.username,
             password=args.password,
             work_dir=args.work_dir,
-            with_view=args.with_view
+            with_view=args.with_view,
+            delete_remotes=args.delete_remotes
         ).start()
     except Exception as ex:
         logging.exception('Unhandled exception: {0}'.format(ex))
