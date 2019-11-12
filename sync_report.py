@@ -139,7 +139,8 @@ class SyncReport:
 
 def main():
     try:
-        parser = argparse.ArgumentParser()
+        parser = argparse.ArgumentParser(
+            description='Checks that each file from the repos CSV file was uploaded successfully.')
         parser.add_argument(
             'csv', help='CSV file with GIT repository URLs to process.')
         parser.add_argument('-u', '--username', help='Synapse username.', default=None)

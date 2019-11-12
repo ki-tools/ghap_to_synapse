@@ -98,7 +98,8 @@ class InSynapseReport:
 
 def main():
     try:
-        parser = argparse.ArgumentParser()
+        parser = argparse.ArgumentParser(
+            description='Tries to find a matching file in Synapse from a local directory. -- DO NOT USE -- SEE "NOTE" in CODE')
         parser.add_argument('work', help='The work directory', default=None)
         parser.add_argument('start', help='The directory containing all the files to check.', default=None)
         parser.add_argument('-u', '--username', help='Synapse username.', default=None)

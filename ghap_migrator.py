@@ -174,7 +174,7 @@ class GhapMigrator:
             full_path = ''
             for folder in Utils.get_path_parts(synapse_path):
                 full_path = os.path.join(full_path, folder)
-                parent = await self.find_or_create_folder(full_path, parent)
+                parent = await self.find_or_create_folder(full_path, parent, is_remote_only=True)
 
         start_path = repo_path
         if git_folder:
@@ -208,7 +208,7 @@ class GhapMigrator:
 
             # Upload the directories.
             for dir_entry in dirs:
-                syn_dir = await self.find_or_create_folder(dir_entry.path, parent)
+                syn_dir = await self.find_or_create_folder(dir_entry.path, parent, is_remote_only=False)
                 await self.upload_folder(dir_entry.path, syn_dir)
         except Exception as ex:
             self.log_error('Error uploading folder: {0}, {1}'.format(local_path, ex))
@@ -276,7 +276,7 @@ class GhapMigrator:
                       'CHANGE_SETTINGS', 'CREATE', 'DOWNLOAD', 'READ', 'MODERATE']
         SynapseProxy.client().setPermissions(project, grantee_id, accessType=accessType, warn_if_inherits=False)
 
-    async def find_or_create_folder(self, path, synapse_parent):
+    async def find_or_create_folder(self, path, synapse_parent, is_remote_only=False):
         synapse_folder = None
 
         if not synapse_parent:
@@ -299,7 +299,7 @@ class GhapMigrator:
             synapse_folder = await SynapseProxy.getAsync(syn_folder_id, downloadFile=False)
             self.set_synapse_parent(synapse_folder)
             self.add_processed_path(path)
-            self.write_csv_line(path, full_synapse_path, synapse_folder.id)
+            self.write_csv_line(path, full_synapse_path, synapse_folder.id, is_remote_only=is_remote_only)
             logging.info('[Folder EXISTS]: {0} -> {1}'.format(path, full_synapse_path))
         else:
             max_attempts = 5
@@ -324,7 +324,7 @@ class GhapMigrator:
                 self.log_error('[Folder FAILED] {0} -> {1} : {2}'.format(path, full_synapse_path, str(exception)))
             else:
                 self.add_processed_path(path)
-                self.write_csv_line(path, full_synapse_path, synapse_folder.id)
+                self.write_csv_line(path, full_synapse_path, synapse_folder.id, is_remote_only=is_remote_only)
                 logging.info('[Folder CREATED] {0} -> {1}'.format(path, full_synapse_path))
                 self.set_synapse_parent(synapse_folder)
 
@@ -440,14 +440,15 @@ class GhapMigrator:
         return os.path.join(*segments)
 
     WRITE_CSV_LINES_FILE = None
-    WRITE_CSV_LINES_HEADERS = ['local_path', 'remote_path', 'synapse_id']
+    WRITE_CSV_LINES_HEADERS = ['local_path', 'remote_path', 'synapse_id', 'is_remote_only']
     WRITE_CSV_LINES_BUFFER = []
 
-    def write_csv_line(self, local_path, remote_path, synapse_id):
+    def write_csv_line(self, local_path, remote_path, synapse_id, is_remote_only=False):
         self.WRITE_CSV_LINES_BUFFER.append({
             'local_path': local_path,
             'remote_path': remote_path,
-            'synapse_id': synapse_id
+            'synapse_id': synapse_id,
+            'is_remote_only': is_remote_only
         })
 
         if len(self.WRITE_CSV_LINES_BUFFER) >= 5000 or len(self.WRITE_CSV_LINES_BUFFER) == 1:
@@ -477,7 +478,7 @@ class GhapMigrator:
 
 def main():
     try:
-        parser = argparse.ArgumentParser()
+        parser = argparse.ArgumentParser(description='Migrates GIT repos from GHAP to Synapse.')
         parser.add_argument(
             'csv', help='CSV file with GIT repository URLs to process.')
         parser.add_argument('-u', '--username', help='Synapse username.', default=None)
