@@ -29,7 +29,7 @@ class MigratedCompareReport:
     def __init__(self, csv_file_path, checkout_root_dir):
         self._csv_file_path = csv_file_path
         self._checkout_root_dir = Utils.expand_path(checkout_root_dir)
-        self._csv_data = []
+        self._csv_data = {}
 
         self._errors = []
         self._start_time = None
@@ -42,7 +42,7 @@ class MigratedCompareReport:
 
     def start(self):
         self._start_time = time.time()
-        self._csv_data = []
+        self._csv_data = {}
 
         logging.info("Started at: {0}".format(datetime.datetime.now()))
         logging.info('Git Checkout Roo Directory: {0}'.format(self._checkout_root_dir))
@@ -92,18 +92,12 @@ class MigratedCompareReport:
             next(reader)
 
             for row in reader:
-                self._csv_data.append(row)
+                self._csv_data[row['local_path']] = row
+
         logging.info('CSV Rows Loaded: {0}'.format(len(self._csv_data)))
 
     def _find_csv_row(self, local_path):
-        results = [r for r in self._csv_data if r['local_path'] == local_path]
-        if len(results) > 1:
-            self.log_error('Found more than one file matching path: {0}'.format(local_path))
-            return results[0]
-        elif len(results) == 1:
-            return results[0]
-        else:
-            return None
+        return self._csv_data.get(local_path, None)
 
 
 def main():
