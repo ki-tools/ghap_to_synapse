@@ -48,8 +48,11 @@ class MigratedCompareReport:
         logging.info('Git Checkout Roo Directory: {0}'.format(self._checkout_root_dir))
         logging.info('CSV File: {0}'.format(self._csv_file_path))
 
-        self._load_csv()
-        self._compare(self._checkout_root_dir)
+        try:
+            self._load_csv()
+            self._compare(self._checkout_root_dir)
+        except Exception as ex:
+            self.log_error(ex)
 
         logging.info('#' * 80)
 
