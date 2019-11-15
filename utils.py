@@ -248,6 +248,10 @@ class Utils:
                 # Skip the *.gitlog files since they will be created during upload.
                 if os.path.basename(entry.path).endswith('.gitlog'):
                     continue
+                elif os.path.basename(entry.path).lower() in ['.gitignore',
+                                                              '.gitattributes',
+                                                              'readme_history_prior_to_lfs.txt']:
+                    logging.info('Skipping File: {0}'.format(entry.path))
 
                 files.append(entry)
 
