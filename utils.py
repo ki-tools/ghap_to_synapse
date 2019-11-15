@@ -252,6 +252,7 @@ class Utils:
                                                               '.gitattributes',
                                                               'readme_history_prior_to_lfs.txt']:
                     logging.info('Skipping File: {0}'.format(entry.path))
+                    continue
 
                 files.append(entry)
 
