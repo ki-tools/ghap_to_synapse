@@ -32,6 +32,8 @@ class SynapseComparer:
         for ignore in (ignores or []):
             if ignore.lower().startswith('syn'):
                 self._ignores.append(ignore.lower())
+            elif len(ignore.split(os.sep)) == 1:
+                self._ignores.append(ignore)
             else:
                 self._ignores.append(Utils.expand_path(ignore))
 
@@ -114,7 +116,8 @@ class SynapseComparer:
 
             local_match = self._find_by_name(local_files, remote_file['name'])
 
-            if (remote_file['id'] in self._ignores) or (local_match and local_match.path in self._ignores):
+            if (remote_file['id'] in self._ignores) or (local_match and (
+                    local_match.path in self._ignores or os.path.basename(local_match.path) in self._ignores)):
                 self._log_info('[SKIPPING REMOTE FILE]',
                                '  REMOTE [ ]: {0}({1})'.format(remote_file['name'], remote_file['id']))
 
@@ -163,7 +166,8 @@ class SynapseComparer:
         for remote_dir in remote_dirs:
             local_match = self._find_by_name(local_dirs, remote_dir['name'])
 
-            if (remote_dir['id'] in self._ignores) or (local_match and local_match.path in self._ignores):
+            if (remote_dir['id'] in self._ignores) or (local_match and (
+                    local_match.path in self._ignores or os.path.basename(local_match.path) in self._ignores)):
                 self._log_info('[SKIPPING REMOTE DIRECTORY]',
                                '  REMOTE [ ]: {0}({1})'.format(remote_dir['name'], remote_dir['id']))
 
@@ -195,7 +199,8 @@ class SynapseComparer:
         for local_file in local_files:
             remote_match = self._find_by_name(remote_files, local_file.name)
 
-            if (local_file.path in self._ignores) or (remote_match and remote_match['id'] in self._ignores):
+            if (local_file.path in self._ignores) or os.path.basename(local_file.path) in self._ignores or (
+                    remote_match and remote_match['id'] in self._ignores):
                 self._log_info('[SKIPPING LOCAL FILE]',
                                '  LOCAL  [ ]: {0}'.format(local_file.path))
 
@@ -222,7 +227,8 @@ class SynapseComparer:
         for local_dir in local_dirs:
             remote_match = self._find_by_name(remote_dirs, local_dir.name)
 
-            if (local_dir.path in self._ignores) or (remote_match and remote_match['id'] in self._ignores):
+            if (local_dir.path in self._ignores) or (os.path.basename(local_dir.path) in self._ignores) or (
+                    remote_match and remote_match['id'] in self._ignores):
                 self._log_info('[SKIPPING LOCAL DIRECTORY]',
                                '  LOCAL  [ ]: {0}'.format(local_dir.path))
 

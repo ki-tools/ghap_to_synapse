@@ -118,10 +118,17 @@ class SyncReport:
         if git_folder:
             start_path = os.path.join(repo_path, git_folder)
 
+        ignores = [
+            '.git',
+            '.gitignore',
+            '.gitattributes',
+            'README_history_prior_to_LFS.txt'
+        ]
+
         comparer = SynapseComparer(path_parent.id,
                                    start_path,
                                    with_view=self._with_view,
-                                   ignores=[os.path.join(start_path, '.git')],
+                                   ignores=ignores,
                                    delete_remotes=self._delete_remotes)
         await comparer.start()
         if comparer.has_errors:
