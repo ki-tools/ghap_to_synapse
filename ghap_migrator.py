@@ -403,13 +403,23 @@ class GhapMigrator:
                             '[File RETRY in {0}s] {1} -> {2}'.format(sleep_time, local_file, full_synapse_path))
                         asyncio.sleep(sleep_time)
 
+            # Verify the file uploaded successfully.
+            if synapse_file and exception is None:
+                local_size = os.path.getsize(local_file)
+                remote_md5 = synapse_file._file_handle['contentMd5']
+                remote_size = synapse_file._file_handle['contentSize']
+
+                if local_md5 != remote_md5:
+                    exception = Exception('Local MD5 does not match remote MD5 for: {0}'.format(local_file))
+
+                if local_size != remote_size:
+                    exception = Exception('Local size: {0} does not match remote size: {1} for: {2}'.format(local_size,
+                                                                                                            remote_size,
+                                                                                                            local_file))
+
             if exception:
                 self.log_error('[File FAILED] {0} -> {1} : {2}'.format(local_file, full_synapse_path, str(exception)))
             else:
-                synapse_file_md5 = synapse_file._file_handle['contentMd5']
-                if local_md5 != synapse_file_md5:
-                    self.log_error('Local MD5 does not match remote MD5 for: {0}'.format(local_file))
-
                 self.add_processed_path(local_file)
                 self.write_csv_line(local_file, full_synapse_path, synapse_file.id)
                 logging.info('[File UPLOADED] {0} -> {1}'.format(local_file, full_synapse_path))
