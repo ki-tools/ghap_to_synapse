@@ -32,7 +32,7 @@ from synapse_proxy import SynapseProxy
 class GhapMigrator:
 
     def __init__(self, csv_filename, username=None, password=None, admin_team_id=None, storage_location_id=None,
-                 work_dir=None, git_pull_only=False, timestamp=None):
+                 work_dir=None, git_pull_only=False, skip_git=False, timestamp=None):
         self._csv_filename = csv_filename
         self._username = username
         self._password = password
@@ -42,6 +42,7 @@ class GhapMigrator:
         self._storage_location = None
         self._work_dir = None
         self._git_pull_only = git_pull_only
+        self._skip_git = skip_git
         self._timestamp = timestamp
 
         if work_dir is None:
@@ -137,10 +138,18 @@ class GhapMigrator:
 
         if self._git_pull_only:
             logging.info('Action: git clone/pull only')
-            await Utils.process_repo_csv(self._csv_filename, self._work_dir, self.repo_pulled, self.log_error)
+            await Utils.process_repo_csv(self._csv_filename,
+                                         self._work_dir,
+                                         self._skip_git,
+                                         self.repo_pulled,
+                                         self.log_error)
         else:
             logging.info('Action: migrate')
-            await Utils.process_repo_csv(self._csv_filename, self._work_dir, self.push_to_synapse, self.log_error)
+            await Utils.process_repo_csv(self._csv_filename,
+                                         self._work_dir,
+                                         self._skip_git,
+                                         self.push_to_synapse,
+                                         self.log_error)
 
     async def repo_pulled(self, git_url, repo_name, repo_path, git_folder, synapse_project_id, synapse_path):
         # noop
@@ -502,6 +511,10 @@ def main():
                             help='Only git pull the repos in the CSV file.',
                             default=False,
                             action='store_true')
+        parser.add_argument('-sg', '--skip-git',
+                            help='Skip cloning/pulling files from GIT.',
+                            default=False,
+                            action='store_true')
 
         args = parser.parse_args()
 
@@ -518,6 +531,7 @@ def main():
             storage_location_id=args.storage_location_id,
             work_dir=args.work_dir,
             git_pull_only=args.git_pull_only,
+            skip_git=args.skip_git,
             timestamp=timestamp
         ).start()
     except Exception as ex:

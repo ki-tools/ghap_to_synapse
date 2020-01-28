@@ -78,7 +78,7 @@ class SyncReport:
             logging.info('Completed Successfully.')
 
     async def _startAsync(self):
-        await Utils.process_repo_csv(self._csv_filename, self._work_dir, self.report_on_repo, self.log_error)
+        await Utils.process_repo_csv(self._csv_filename, self._work_dir, False, self.report_on_repo, self.log_error)
 
     async def report_on_repo(self, git_url, repo_name, repo_path, git_folder, synapse_project_id, synapse_path):
         logging.info('-' * 80)

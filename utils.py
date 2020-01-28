@@ -60,8 +60,9 @@ class Utils:
     PROCESSED_REPOS = []
 
     @staticmethod
-    async def process_repo_csv(csv_filename, work_dir, success_func, error_func):
+    async def process_repo_csv(csv_filename, work_dir, skip_git, success_func, error_func):
         Utils.PROCESSED_REPOS = []
+        git_errors = None
 
         git_lfs_installed = Utils.git_lfs_installed()
 
@@ -79,10 +80,13 @@ class Utils:
             repo_url_path, repo_name, repo_local_path = Utils.parse_git_url(git_url, work_dir)
 
             if git_url not in Utils.PROCESSED_REPOS:
-                git_errors = Utils.get_git_repo(git_url,
-                                                repo_local_path,
-                                                work_dir,
-                                                git_lfs_installed=git_lfs_installed)
+                if not skip_git:
+                    git_errors = Utils.get_git_repo(git_url,
+                                                    repo_local_path,
+                                                    work_dir,
+                                                    git_lfs_installed=git_lfs_installed)
+                else:
+                    logging.info('  - Skipping GIT Clone/Pull: {0}'.format(repo_local_path))
                 Utils.PROCESSED_REPOS.append(git_url)
             else:
                 logging.info('  - Repo Root: {0}'.format(repo_local_path))
