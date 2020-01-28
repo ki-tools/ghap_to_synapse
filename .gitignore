@@ -23,6 +23,8 @@ var/
 .venv
 .vscode
 .coverage
+.python-version
 htmlcov
-log*.txt
+*_log*.txt
+*_processed*.csv
 test.csv

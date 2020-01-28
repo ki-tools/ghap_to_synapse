@@ -118,22 +118,9 @@ def main():
     args = parser.parse_args()
 
     log_level = getattr(logging, args.log_level.upper())
-
     timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S%f")
-    log_filename = 'log_{0}.txt'.format(timestamp)
-
-    logging.basicConfig(
-        filename=log_filename,
-        filemode='w',
-        format='%(asctime)s %(levelname)s: %(message)s',
-        level=log_level
-    )
-
-    # Add console logging.
-    console = logging.StreamHandler()
-    console.setLevel(log_level)
-    console.setFormatter(logging.Formatter('%(message)s'))
-    logging.getLogger().addHandler(console)
+    log_filename = 'filename_fixer_log_{0}.txt'.format(timestamp)
+    Utils.setup_logging(log_filename, log_level)
 
     FilenameFixer(args.path, dry_run=args.dry_run, replace_char=args.replace_char).execute()
 
