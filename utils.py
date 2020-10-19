@@ -265,7 +265,7 @@ class Utils:
 
         return dirs, files
 
-    VALID_FILENAME_CHARS = frozenset("-_.() %s%s" % (string.ascii_letters, string.digits))
+    VALID_FILENAME_CHARS = frozenset("+-_.() %s%s" % (string.ascii_letters, string.digits))
 
     @staticmethod
     def get_invalid_synapse_name_chars(name):
